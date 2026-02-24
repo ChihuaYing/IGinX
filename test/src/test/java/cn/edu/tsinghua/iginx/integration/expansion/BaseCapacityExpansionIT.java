@@ -27,10 +27,12 @@ import static org.junit.Assert.*;
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.exception.SessionException;
 import cn.edu.tsinghua.iginx.integration.controller.Controller;
+import cn.edu.tsinghua.iginx.integration.expansion.constant.Constant;
 import cn.edu.tsinghua.iginx.integration.expansion.filesystem.FileSystemCapacityExpansionIT;
 import cn.edu.tsinghua.iginx.integration.expansion.influxdb.InfluxDBCapacityExpansionIT;
 import cn.edu.tsinghua.iginx.integration.expansion.utils.SQLTestTools;
 import cn.edu.tsinghua.iginx.integration.tool.ConfLoader;
+import cn.edu.tsinghua.iginx.integration.tool.DBConf;
 import cn.edu.tsinghua.iginx.session.ClusterInfo;
 import cn.edu.tsinghua.iginx.session.QueryDataSet;
 import cn.edu.tsinghua.iginx.session.Session;
@@ -53,15 +55,16 @@ public abstract class BaseCapacityExpansionIT {
 
   protected static Session session;
 
-  protected static final String ALTER_ENGINE_STRING = "alter storageengine %d with params '%s';";
+  /** Format: alter storageengine <id> options (key1='value1', key2='value2'); */
+  protected static final String ALTER_ENGINE_STRING = "alter storageengine %d options (%s);";
 
   private static final ConfLoader testConf = new ConfLoader(Controller.CONFIG_FILE);
 
   protected StorageEngineType type;
 
-  protected Map<Integer, String> portsToExtraParams;
+  protected Map<Integer, Map<String, String>> portsToExtraParams;
 
-  protected List<String> wrongExtraParams = new ArrayList<>();
+  protected List<Map<String, String>> wrongExtraParams = new ArrayList<>();
 
   protected Map<String, String> updatedParams = new HashMap<>();
 
@@ -73,8 +76,6 @@ public abstract class BaseCapacityExpansionIT {
 
   public static final String DBCE_PARQUET_FS_TEST_DIR = "test";
 
-  protected static final String updateParamsScriptDir = ".github/scripts/dataSources/update/";
-
   protected static final String shutdownScriptDir = ".github/scripts/dataSources/shutdown/";
 
   protected static final String restartScriptDir = ".github/scripts/dataSources/restart/";
@@ -83,52 +84,114 @@ public abstract class BaseCapacityExpansionIT {
 
   protected static BaseHistoryDataGenerator generator;
 
-  public BaseCapacityExpansionIT(
-      StorageEngineType type, String extraParams, BaseHistoryDataGenerator generator) {
-    this(
-        type,
-        new HashMap<Integer, String>() {
-          {
-            put(oriPort, extraParams);
-            put(expPort, extraParams);
-            put(readOnlyPort, extraParams);
-          }
-        },
-        generator);
-  }
-
+  /**
+   * Constructor that accepts Map<Integer, Map<String, String>> directly. Use this when you need
+   * different extraParams for different ports.
+   *
+   * @param type storage engine type
+   * @param portsToExtraParams map of port to extra parameters
+   * @param generator history data generator
+   */
   public BaseCapacityExpansionIT(
       StorageEngineType type,
-      Map<Integer, String> portsToExtraParams,
+      Map<Integer, Map<String, String>> portsToExtraParams,
       BaseHistoryDataGenerator generator) {
     this.type = type;
     this.portsToExtraParams = portsToExtraParams;
     BaseCapacityExpansionIT.generator = generator;
   }
 
-  protected String addStorageEngine(
-      int port,
-      boolean hasData,
-      boolean isReadOnly,
-      String dataPrefix,
-      String schemaPrefix,
-      String extraParams) {
-    return this.addStorageEngine(
-        port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParams, false);
+  /**
+   * Static factory method that accepts Map<String, String> and automatically fills ports. This is a
+   * convenience method that reduces code duplication in subclasses. Note: This is a static method
+   * to avoid generic type erasure conflicts with the constructor.
+   *
+   * @param extraParamsMap extra parameters as a Map (will be applied to all ports)
+   * @return a new BaseCapacityExpansionIT instance
+   */
+  protected static Map<Integer, Map<String, String>> createPortsToExtraParams(
+      Map<String, String> extraParamsMap) {
+    // Read port values from configuration
+    ConfLoader conf = new ConfLoader(Controller.CONFIG_FILE);
+    DBConf dbConf = conf.loadDBConf(conf.getStorageType());
+    int oriPortValue = dbConf.getDBCEPortMap().get(ORI_PORT_NAME);
+    int expPortValue = dbConf.getDBCEPortMap().get(EXP_PORT_NAME);
+    int readOnlyPortValue = dbConf.getDBCEPortMap().get(READ_ONLY_PORT_NAME);
+
+    // Set static port values in Constant class
+    Constant.oriPort = oriPortValue;
+    Constant.expPort = expPortValue;
+    Constant.readOnlyPort = readOnlyPortValue;
+
+    // Create portsToExtraParams map with the same extraParams for all ports
+    Map<Integer, Map<String, String>> portsToExtraParams = new HashMap<>();
+    Map<String, String> extraParams =
+        extraParamsMap != null ? new HashMap<>(extraParamsMap) : new HashMap<>();
+    portsToExtraParams.put(oriPortValue, new HashMap<>(extraParams));
+    portsToExtraParams.put(expPortValue, new HashMap<>(extraParams));
+    portsToExtraParams.put(readOnlyPortValue, new HashMap<>(extraParams));
+
+    return portsToExtraParams;
   }
 
+  /**
+   * Add storage engine with Map-based extra params (avoids string serialization overhead).
+   *
+   * @param port storage engine port
+   * @param hasData whether the storage engine has data
+   * @param isReadOnly whether the storage engine is read-only
+   * @param dataPrefix data prefix
+   * @param schemaPrefix schema prefix
+   * @param extraParamsMap extra parameters as a Map (avoids string parsing)
+   * @return error message if failed, null if succeeded
+   */
   protected String addStorageEngine(
       int port,
       boolean hasData,
       boolean isReadOnly,
       String dataPrefix,
       String schemaPrefix,
-      String extraParams,
+      Map<String, String> extraParamsMap) {
+    return this.addStorageEngine(
+        "127.0.0.1", port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParamsMap, false);
+  }
+
+  /**
+   * Add storage engine with Map-based extra params.
+   *
+   * @param port storage engine port
+   * @param hasData whether the storage engine has data
+   * @param isReadOnly whether the storage engine is read-only
+   * @param dataPrefix data prefix
+   * @param schemaPrefix schema prefix
+   * @param extraParamsMap extra parameters as a Map
+   * @param noError whether to suppress error logging
+   * @return error message if failed, null if succeeded
+   */
+  protected String addStorageEngine(
+      int port,
+      boolean hasData,
+      boolean isReadOnly,
+      String dataPrefix,
+      String schemaPrefix,
+      Map<String, String> extraParamsMap,
       boolean noError) {
     return this.addStorageEngine(
-        "127.0.0.1", port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParams, noError);
+        "127.0.0.1", port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParamsMap, noError);
   }
 
+  /**
+   * Add storage engine with Map-based extra params.
+   *
+   * @param ip storage engine IP
+   * @param port storage engine port
+   * @param hasData whether the storage engine has data
+   * @param isReadOnly whether the storage engine is read-only
+   * @param dataPrefix data prefix
+   * @param schemaPrefix schema prefix
+   * @param extraParamsMap extra parameters as a Map
+   * @return error message if failed, null if succeeded
+   */
   protected String addStorageEngine(
       String ip,
       int port,
@@ -136,11 +199,24 @@ public abstract class BaseCapacityExpansionIT {
       boolean isReadOnly,
       String dataPrefix,
       String schemaPrefix,
-      String extraParams) {
+      Map<String, String> extraParamsMap) {
     return this.addStorageEngine(
-        ip, port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParams, false);
+        ip, port, hasData, isReadOnly, dataPrefix, schemaPrefix, extraParamsMap, false);
   }
 
+  /**
+   * Add storage engine with Map-based extra params.
+   *
+   * @param ip storage engine IP
+   * @param port storage engine port
+   * @param hasData whether the storage engine has data
+   * @param isReadOnly whether the storage engine is read-only
+   * @param dataPrefix data prefix
+   * @param schemaPrefix schema prefix
+   * @param extraParamsMap extra parameters as a Map
+   * @param noError whether to suppress error logging
+   * @return error message if failed, null if succeeded
+   */
   protected String addStorageEngine(
       String ip,
       int port,
@@ -148,7 +224,7 @@ public abstract class BaseCapacityExpansionIT {
       boolean isReadOnly,
       String dataPrefix,
       String schemaPrefix,
-      String extraParams,
+      Map<String, String> extraParamsMap,
       boolean noError) {
     try {
       StringBuilder statement = new StringBuilder();
@@ -158,37 +234,47 @@ public abstract class BaseCapacityExpansionIT {
       statement.append(port);
       statement.append(", \"");
       statement.append(type.name());
-      statement.append("\", '");
-      statement.append("has_data=");
-      statement.append(hasData);
-      statement.append(", is_read_only=");
-      statement.append(isReadOnly);
+      statement.append("\", OPTIONS (");
+
+      // 构建 OPTIONS 参数列表
+      List<String> options = new ArrayList<>();
+      options.add("has_data '" + hasData + "'");
+      options.add("is_read_only '" + isReadOnly + "'");
+
       if (this instanceof InfluxDBCapacityExpansionIT) {
-        statement.append(", url=http://localhost:");
-        statement.append(port);
-        statement.append("/");
+        options.add("url 'http://localhost:" + port + "/'");
       }
       if (IS_EMBEDDED) {
-        statement.append(String.format(", dummy_dir=%s/", DBCE_PARQUET_FS_TEST_DIR));
-        statement.append(PORT_TO_ROOT.get(port));
-        statement.append(
-            String.format(", dir=%s/" + IGINX_DATA_PATH_PREFIX_NAME, DBCE_PARQUET_FS_TEST_DIR));
-        statement.append(PORT_TO_ROOT.get(port));
-        statement.append(", iginx_port=").append(oriPortIginx);
+        options.add(
+            "dummy_dir '"
+                + String.format("%s/%s", DBCE_PARQUET_FS_TEST_DIR, PORT_TO_ROOT.get(port))
+                + "'");
+        options.add(
+            "dir '"
+                + String.format(
+                    "%s/%s%s",
+                    DBCE_PARQUET_FS_TEST_DIR, IGINX_DATA_PATH_PREFIX_NAME, PORT_TO_ROOT.get(port))
+                + "'");
+        options.add("iginx_port '" + oriPortIginx + "'");
       }
-      if (extraParams != null) {
-        statement.append(", ");
-        statement.append(extraParams);
+
+      // Directly use Map without string serialization/deserialization
+      if (extraParamsMap != null && !extraParamsMap.isEmpty()) {
+        for (Map.Entry<String, String> entry : extraParamsMap.entrySet()) {
+          String key = entry.getKey();
+          options.add(key + " '" + entry.getValue() + "'");
+        }
       }
+
       if (dataPrefix != null) {
-        statement.append(", data_prefix=");
-        statement.append(dataPrefix);
+        options.add("data_prefix '" + dataPrefix + "'");
       }
       if (schemaPrefix != null) {
-        statement.append(", schema_prefix=");
-        statement.append(schemaPrefix);
+        options.add("schema_prefix '" + schemaPrefix + "'");
       }
-      statement.append("');");
+
+      statement.append(String.join(", ", options));
+      statement.append("));");
 
       LOGGER.info("Execute Statement: \"{}\"", statement);
       session.executeSql(statement.toString());
@@ -204,7 +290,7 @@ public abstract class BaseCapacityExpansionIT {
             isReadOnly,
             dataPrefix,
             schemaPrefix,
-            extraParams);
+            extraParamsMap);
       } else {
         LOGGER.warn(
             "add storage engine:{} port:{} hasData:{} isReadOnly:{} dataPrefix:{} schemaPrefix:{} extraParams:{} failure: ",
@@ -214,11 +300,62 @@ public abstract class BaseCapacityExpansionIT {
             isReadOnly,
             dataPrefix,
             schemaPrefix,
-            extraParams,
+            extraParamsMap,
             e);
       }
       return e.getMessage();
     }
+  }
+
+  /**
+   * Build ADD STORAGEENGINE SQL with double quote for schema_prefix. Backend uses backslash escape
+   * for string literals (\" → ", \\ → \).
+   */
+  private String buildAddStorageEngineSqlWithDoubleQuote(
+      int port, String schemaPrefix, Map<String, String> extraParamsMap) {
+    StringBuilder statement = new StringBuilder();
+    statement.append("ADD STORAGEENGINE (\"127.0.0.1\", ");
+    statement.append(port);
+    statement.append(", \"");
+    statement.append(type.name());
+    statement.append("\", OPTIONS (");
+
+    List<String> options = new ArrayList<>();
+    options.add("has_data 'true'");
+    options.add("is_read_only 'true'");
+
+    if (this instanceof InfluxDBCapacityExpansionIT) {
+      options.add("url 'http://localhost:" + port + "/'");
+    }
+    if (IS_EMBEDDED) {
+      options.add(
+          "dummy_dir '"
+              + String.format("%s/%s", DBCE_PARQUET_FS_TEST_DIR, PORT_TO_ROOT.get(port))
+              + "'");
+      options.add(
+          "dir '"
+              + String.format(
+                  "%s/%s%s",
+                  DBCE_PARQUET_FS_TEST_DIR, IGINX_DATA_PATH_PREFIX_NAME, PORT_TO_ROOT.get(port))
+              + "'");
+      options.add("iginx_port '" + oriPortIginx + "'");
+    }
+    if (extraParamsMap != null && !extraParamsMap.isEmpty()) {
+      for (Map.Entry<String, String> entry : extraParamsMap.entrySet()) {
+        String key = entry.getKey();
+        options.add(key + " '" + entry.getValue() + "'");
+      }
+    }
+
+    // Use double quotes for schema_prefix (backslash escape: \" → ", \\ → \)
+    options.add("schema_prefix \"" + schemaPrefix + "\"");
+
+    statement.append(String.join(", ", options));
+    statement.append("));");
+
+    LOGGER.info("Execute Statement: \"{}\"", statement);
+
+    return statement.toString();
   }
 
   @BeforeClass
@@ -378,7 +515,7 @@ public abstract class BaseCapacityExpansionIT {
       int port, boolean hasData, boolean isReadOnly, String dataPrefix, String schemaPrefix) {
     // wrong params
     String res;
-    for (String params : wrongExtraParams) {
+    for (Map<String, String> params : wrongExtraParams) {
       res = addStorageEngine(port, hasData, isReadOnly, dataPrefix, schemaPrefix, params, true);
       if (res != null) {
         LOGGER.info(
@@ -419,27 +556,18 @@ public abstract class BaseCapacityExpansionIT {
 
   // 测试密码修改为包含特殊字符等情况，还能否正常AddStorageEngine
   protected void testAddStorageEngineWithSpecialCharParam(String prefix) throws SessionException {
-    String originalParams = portsToExtraParams.get(readOnlyPort);
+    Map<String, String> originalParams = portsToExtraParams.get(readOnlyPort);
     String newPassword = updatedParams.get("password");
 
     Map<String, String> paramsMap = new LinkedHashMap<>();
     if (originalParams != null && !originalParams.isEmpty()) {
-      for (String pair : originalParams.split(",")) {
-        String[] kv = pair.split("=", 2);
-        if (kv.length == 2) {
-          paramsMap.put(kv[0], kv[1]);
-        }
-      }
+      paramsMap.putAll(originalParams);
     }
     if (newPassword != null) {
       paramsMap.put("password", newPassword);
     }
-    String extraParams =
-        paramsMap.entrySet().stream()
-            .map(entry -> entry.getKey() + "=" + entry.getValue())
-            .collect(Collectors.joining(","));
-    // 添加只读节点
-    addStorageEngine(readOnlyPort, true, true, null, prefix, extraParams);
+    // 添加只读节点 - Use Map directly to avoid serialization/deserialization
+    addStorageEngine(readOnlyPort, true, true, null, prefix, paramsMap);
     // 修改
     List<StorageEngineInfo> engineInfoList = session.getClusterInfo().getStorageEngineInfos();
     long id = -1;
@@ -496,11 +624,11 @@ public abstract class BaseCapacityExpansionIT {
     }
     assertTrue(id != -1);
 
-    String newParams =
+    String optionsClause =
         updatedParams.entrySet().stream()
-            .map(entry -> entry.getKey() + "=" + entry.getValue())
+            .map(entry -> entry.getKey() + " '" + entry.getValue() + "'")
             .collect(Collectors.joining(", "));
-    session.executeSql(String.format(ALTER_ENGINE_STRING, id, newParams));
+    session.executeSql(String.format(ALTER_ENGINE_STRING, id, optionsClause));
 
     // 重新查询
     statement = "select wt01.status, wt01.temperature from " + prefix + ".tm.wf05;";
@@ -810,17 +938,108 @@ public abstract class BaseCapacityExpansionIT {
     SQLTestTools.executeAndCompare(session, statement, expect);
   }
 
+  /**
+   * 测试 schema_prefix 中各类字符的转义与存储：控制字符、单引号反斜杠转义 \'、双引号反斜杠转义 \"、混合、反引号。 每个用例统一：stored =
+   * 实际存的值（query/expected path），addPrefix = ADD 时传入，removePrefix = REMOVE SQL 中 schema_prefix 的写法。
+   */
   private void testSpecialPrefix(String removeStatement, List<List<Object>> valuesList) {
-    String schemaPrefix = "\\,\\\"\\'"; // 输入为\,\"\' -> 实际schemaPrefix为,"'
-    // 测试转义符在schema_prefix中是否能够正确转义，成功add storageengine与remove storageengine
-    addStorageEngine(expPort, true, true, null, schemaPrefix, portsToExtraParams.get(expPort));
-    String statement = "select wt01.status2 from `,\"'.nt.wf03`;";
-    List<String> pathList = Collections.singletonList(",\"'.nt.wf03.wt01.status2");
-    SQLTestTools.executeAndCompare(session, statement, pathList, valuesList);
+    Map<String, String> extraParams = portsToExtraParams.get(expPort);
+    List<String> pathList;
+
+    // ---------- Case 0: 控制字符（无引号，单引号 REMOVE 模板直接拼） ----------
+    String schemaPrefix = ",\\n\\r\\f\\b\\t\\u0041\n\r\f\b\t\u0041";
+    String queryPrefix = ",\\n\\r\\f\\b\\t\\u0041\n\r\f\b\tA";
+
+    addStorageEngine(expPort, true, true, null, schemaPrefix, extraParams);
+    pathList = Collections.singletonList(queryPrefix + ".nt.wf03.wt01.status2");
+    SQLTestTools.executeAndCompare(
+        session, "select wt01.status2 from `" + queryPrefix + ".nt.wf03`;", pathList, valuesList);
     try {
       session.executeSql(String.format(removeStatement, expPort, schemaPrefix, ""));
     } catch (SessionException e) {
       LOGGER.error("remove history data source through sql error: ", e);
+      fail();
+    }
+
+    // ---------- Case 1: 单引号反斜杠转义 \' -> 存 test's，ADD 用单引号、REMOVE 用双引号 ----------
+    String stored1 = "test's";
+    String addPrefix1 = "test\\'s";
+
+    addStorageEngine("127.0.0.1", expPort, true, true, null, addPrefix1, extraParams);
+    pathList = Collections.singletonList(stored1 + ".nt.wf03.wt01.status2");
+    SQLTestTools.executeAndCompare(
+        session, "select wt01.status2 from `" + stored1 + ".nt.wf03`;", pathList, valuesList);
+    try {
+      session.executeSql(
+          String.format(
+              "remove storageengine (\"127.0.0.1\", %d, \"%s\", \"\") for all;", expPort, stored1));
+    } catch (SessionException e) {
+      LOGGER.error("test single quote (\\' escape) failure: ", e);
+      fail();
+    }
+
+    // ---------- Case 2: 双引号反斜杠转义 \" -> 存 test"s，ADD/REMOVE 均双引号+反斜杠转义 ----------
+    String stored2 = "test\"s";
+    String addPrefix2 = "test\\\"s";
+
+    try {
+      session.executeSql(buildAddStorageEngineSqlWithDoubleQuote(expPort, addPrefix2, extraParams));
+    } catch (SessionException e) {
+      throw new RuntimeException(e);
+    }
+    pathList = Collections.singletonList(stored2 + ".nt.wf03.wt01.status2");
+    SQLTestTools.executeAndCompare(
+        session, "select wt01.status2 from `" + stored2 + ".nt.wf03`;", pathList, valuesList);
+    try {
+      session.executeSql(
+          String.format(
+              "remove storageengine (\"127.0.0.1\", %d, '%s', '') for all;", expPort, stored2));
+    } catch (SessionException e) {
+      LOGGER.error("test double quote (\\\" escape) failure: ", e);
+      fail();
+    }
+
+    // ---------- Case 3: 同时含 \' 与 \"，双引号内反斜杠转义 -> 存 test\'a"b ----------
+    String stored3 = "test\\'a\"b";
+    String addPrefix3 = "test\\'a\\\"b";
+
+    try {
+      session.executeSql(buildAddStorageEngineSqlWithDoubleQuote(expPort, addPrefix3, extraParams));
+    } catch (SessionException e) {
+      throw new RuntimeException(e);
+    }
+    pathList = Collections.singletonList(stored3 + ".nt.wf03.wt01.status2");
+    SQLTestTools.executeAndCompare(
+        session, "select wt01.status2 from `" + stored3 + ".nt.wf03`;", pathList, valuesList);
+    try {
+      session.executeSql(
+          String.format(
+              "remove storageengine (\"127.0.0.1\", %d, \"%s\", \"\") for all;",
+              expPort, addPrefix3));
+    } catch (SessionException e) {
+      LOGGER.error("test prefix with \\' and \\\" failure: ", e);
+      fail();
+    }
+
+    // ---------- Case 4: 反引号反斜杠转义 \`，ADD/REMOVE 双引号包裹 ----------
+    if (type == StorageEngineType.iotdb12) {
+      LOGGER.info("Skipping backtick test for IoTDB (parser does not support backticks in paths)");
+      return;
+    }
+    String stored4 = "test`name";
+    String addPrefix4 = "test`name"; // value test`name; in backtick SQL use `test\`name`
+
+    addStorageEngine("127.0.0.1", expPort, true, true, null, addPrefix4, extraParams);
+    pathList = Collections.singletonList(stored4 + ".nt.wf03.wt01.status2");
+    SQLTestTools.executeAndCompare(
+        session, "select wt01.status2 from `test\\`name.nt.wf03`;", pathList, valuesList);
+    try {
+      session.executeSql(
+          String.format(
+              "remove storageengine (\"127.0.0.1\", %d, \"%s\", \"\") for all;",
+              expPort, addPrefix4));
+    } catch (SessionException e) {
+      LOGGER.error("test backtick (\\` in path) failure: ", e);
       fail();
     }
   }
@@ -930,8 +1149,8 @@ public abstract class BaseCapacityExpansionIT {
     pathListAns.add("p3.nt.wf04.wt01.temperature");
     SQLTestTools.executeAndCompare(session, statement, pathListAns, EXP_VALUES_LIST2);
 
-    // 通过 sql 语句测试移除节点
-    String removeStatement = "remove storageengine (\"127.0.0.1\", %d, \"%s\", \"%s\") for all;";
+    // 通过 sql 语句测试移除节点（用单引号包裹 schema/data prefix，便于转义单引号 \'）
+    String removeStatement = "remove storageengine (\"127.0.0.1\", %d, '%s', '%s') for all;";
     try {
       session.executeSql(
           String.format(removeStatement, expPort, "p1" + schemaPrefixSuffix, dataPrefix1));
@@ -959,6 +1178,10 @@ public abstract class BaseCapacityExpansionIT {
     testShowClusterInfo(2);
 
     testSpecialPrefix(removeStatement, valuesList);
+
+    testShowClusterInfo(2);
+
+    testShowClusterInfo(2);
 
     testShowClusterInfo(2);
   }

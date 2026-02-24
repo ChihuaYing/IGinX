@@ -76,6 +76,68 @@ public class ClientIT {
     client.close();
   }
 
+  /**
+   * Path string for use in SQL sent via CLI. Uses forward slashes so CLI backslash-escape does not
+   * corrupt Windows paths (e.g. D:\a\b → D:/a/b).
+   */
+  private static String pathForSql(Path path) {
+    return path.toAbsolutePath().toString().replace('\\', '/');
+  }
+
+  @Test
+  public void testEscapeInClient() {
+    // 清理数据
+    client.readLine("clear data;");
+    assertTrue(client.expectedOutputContains("success"));
+
+    // 预期得到：It's ok
+    client.readLine("INSERT INTO usr(key, path) VALUES (0, 'It\\'s ok');");
+    assertTrue(client.expectedOutputContains("success"));
+    client.readLine("INSERT INTO usr(key, path) VALUES (1, \"It's ok\");");
+    assertTrue(client.expectedOutputContains("success"));
+
+    // 预期得到：It\'s ok
+    client.readLine("INSERT INTO usr(key, path) VALUES (2, 'It\\\\\\'s ok');");
+    assertTrue(client.expectedOutputContains("success"));
+    client.readLine("INSERT INTO usr(key, path) VALUES (3, \"It\\\\'s ok\");");
+    assertTrue(client.expectedOutputContains("success"));
+
+    // 预期得到：It"s ok
+    client.readLine("INSERT INTO usr(key, path) VALUES (4, \"It\\\"s ok\");");
+    assertTrue(client.expectedOutputContains("success"));
+    client.readLine("INSERT INTO usr(key, path) VALUES (5, 'It\"s ok');");
+    assertTrue(client.expectedOutputContains("success"));
+
+    // 预期得到：It\"s ok
+    client.readLine("INSERT INTO usr(key, path) VALUES (6, \"It\\\\\\\"s ok\");");
+    assertTrue(client.expectedOutputContains("success"));
+    client.readLine("INSERT INTO usr(key, path) VALUES (7, 'It\\\\\"s ok');");
+    assertTrue(client.expectedOutputContains("success"));
+
+    // 查询并检查结果中是否包含预期字符串
+    client.readLine("SELECT path FROM usr ORDER BY key;");
+    // result去掉最后一行的时间耗时信息进行比对
+    String result = client.getResult();
+    String expected =
+        "IGinX> ResultSets:\n"
+            + "+---+--------+\n"
+            + "|key|usr.path|\n"
+            + "+---+--------+\n"
+            + "|  0| It's ok|\n"
+            + "|  1| It's ok|\n"
+            + "|  2|It\\'s ok|\n"
+            + "|  3|It\\'s ok|\n"
+            + "|  4| It\"s ok|\n"
+            + "|  5| It\"s ok|\n"
+            + "|  6|It\\\"s ok|\n"
+            + "|  7|It\\\"s ok|\n"
+            + "+---+--------+\n"
+            + "Total line number = 8";
+    String actual = result.substring(0, result.lastIndexOf('\n')).trim();
+    expected = expected.replace("\n", System.lineSeparator());
+    assertEquals(expected, actual);
+  }
+
   @Test
   public void testRecognizeDelimiter() {
     // 检测分号在注释或引号里能否被正确识别
@@ -158,8 +220,7 @@ public class ClientIT {
     if (Files.notExists(dir)) {
       Files.createDirectories(dir);
     }
-    String dirPath = dir.toAbsolutePath().toString();
-
+    String dirPath = pathForSql(dir);
     String statement = String.format("select * from test into outfile \"%s\" as stream;", dirPath);
     String expected = String.format("Successfully write 4 file(s) to directory: \"%s\".", dirPath);
     client.readLine(statement);
@@ -174,8 +235,7 @@ public class ClientIT {
       Files.createDirectories(dir);
     }
     Path path = Paths.get("src", "test", "resources", "fileReadAndWrite", "csv", "test.csv");
-    csvPath = path.toAbsolutePath().toString();
-
+    csvPath = pathForSql(path);
     String statement = String.format("select * from test into outfile \"%s\" as csv;", csvPath);
     String expected = String.format("Successfully write csv file: \"%s\".", csvPath);
     client.readLine(statement);
@@ -195,11 +255,10 @@ public class ClientIT {
       Files.createDirectories(dirDummy);
     }
     FileUtils.copyFiles(dirExported, dirDummy, ".ext");
-    // 对于 Windows，需要将路径中的反斜杠替换为斜杠
-    String dirDummyPath = dirDummy.toAbsolutePath().toString().replace("\\", "/");
+    String dirDummyPath = pathForSql(dirDummy);
     String statement =
         String.format(
-            "ADD STORAGEENGINE (\"127.0.0.1\", 6670, \"filesystem\", \"dummy_dir=%s,iginx_port=6888,has_data=true,is_read_only=true\");",
+            "ADD STORAGEENGINE (\"127.0.0.1\", 6670, \"filesystem\", OPTIONS (dummy_dir '%s', iginx_port '6888', has_data 'true', is_read_only 'true'));",
             dirDummyPath);
     client.readLine(statement);
     assertTrue(client.expectedOutputContains("success"));
@@ -208,7 +267,7 @@ public class ClientIT {
     if (Files.notExists(dir)) {
       Files.createDirectories(dir);
     }
-    String dirPath = dir.toAbsolutePath().toString();
+    String dirPath = pathForSql(dir);
     statement = String.format("select * from byteDummy into outfile \"%s\" as stream;", dirPath);
     String expected = String.format("Successfully write 4 file(s) to directory: \"%s\".", dirPath);
     client.readLine(statement);
@@ -248,7 +307,7 @@ public class ClientIT {
     if (Files.notExists(dir)) {
       Files.createDirectories(dir);
     }
-    dirPath = dir.toAbsolutePath().toString();
+    dirPath = pathForSql(dir);
     String statement =
         String.format(
             "select large_img_jpg from downloads into outfile \"%s\" as stream;", dirPath);
@@ -286,7 +345,7 @@ public class ClientIT {
     Path source = Paths.get(csvPath);
     Path target = Paths.get("src", "test", "resources", "fileReadAndWrite", "csv", "test1");
     Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-    String targetPath = target.toAbsolutePath().toString();
+    String targetPath = pathForSql(target);
 
     String header = "key,d m,b,[c],a";
     List<String> lines = Files.readAllLines(target);
@@ -321,8 +380,7 @@ public class ClientIT {
     String downloadsDir = DOWNLOADS_DIR_PATH.toAbsolutePath().toString();
     String zipPath = FileUtils.downloadFile(LARGE_CSV_URL, downloadsDir, "bigcsv.7z");
     FileUtils.extract7zFile(zipPath, downloadsDir);
-    String bigCsvPath = Paths.get(downloadsDir, "test_bigcsv.csv").toAbsolutePath().toString();
-
+    String bigCsvPath = pathForSql(Paths.get(downloadsDir, "test_bigcsv.csv"));
     String statement =
         String.format("LOAD DATA FROM INFILE \"%s\" AS CSV INTO bigcsv;", bigCsvPath);
     client.readLine(statement, 1000 * 300); // 设置5分钟超时时间

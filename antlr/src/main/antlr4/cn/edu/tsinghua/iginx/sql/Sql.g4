@@ -34,7 +34,7 @@ statement
    | SHOW COLUMNS showColumnsOptions # showColumnsStatement
    | SHOW REPLICA NUMBER # showReplicationStatement
    | ADD STORAGEENGINE storageEngineSpec # addStorageEngineStatement
-   | ALTER STORAGEENGINE engineId = INT WITH PARAMS params = stringLiteral # alterEngineStatement
+   | ALTER STORAGEENGINE engineId = INT OPTIONS LR_BRACKET storageEngineOption (COMMA storageEngineOption)* RR_BRACKET # alterEngineStatement
    | SHOW CLUSTER INFO # showClusterInfoStatement
    | CREATE USER username = nodeName IDENTIFIED BY password = nodeName # createUserStatement
    | GRANT permissionSpec TO USER username = nodeName # grantUserStatement
@@ -264,12 +264,13 @@ tagEquation
    ;
 
 tagKey
-   : ID
+   : identifier
    ;
 
 tagValue
-   : ID
+   : stringLiteral
    | STAR
+   | ID
    ;
 
 fromClause
@@ -453,7 +454,15 @@ storageEngineSpec
    ;
 
 storageEngine
-   : LR_BRACKET ip = stringLiteral COMMA port = INT COMMA engineType = stringLiteral COMMA extra = stringLiteral RR_BRACKET
+   : LR_BRACKET ip = stringLiteral COMMA port = INT COMMA engineType = stringLiteral COMMA OPTIONS LR_BRACKET storageEngineOption (COMMA storageEngineOption)* RR_BRACKET RR_BRACKET
+   ;
+
+storageEngineOption
+   : key = storageEngineOptionKey OPERATOR_EQ? value = stringLiteral
+   ;
+
+storageEngineOptionKey
+   : nodeName (DOT nodeName)*
    ;
 
 timeValue
@@ -596,6 +605,7 @@ keyWords
    | THEN
    | ELSE
    | END
+   | OPTIONS
    ;
 
 dateFormat
@@ -1175,6 +1185,10 @@ END
    : E N D
    ;
 
+OPTIONS
+   : O P T I O N S
+   ;
+
 SEQUENCE
    : S E Q U E N C E
    ;
@@ -1433,15 +1447,33 @@ fragment CN_CHAR
    ;
 
 BACK_QUOTE_STRING_LITERAL_NOT_EMPTY
-   : BACK_QUOTE ('\\' . | ~ '`')+? BACK_QUOTE
+   : BACK_QUOTE BACK_QUOTE_STRING_CONTENT+ BACK_QUOTE
+   ;
+
+fragment BACK_QUOTE_STRING_CONTENT
+   : '\\' '\\' '`' // \\` -> \` (avoid truncation e.g. `It\`s ok`)
+   | '\\' . // Backslash escape: \` -> `
+   | ~ [`\\]
    ;
 
 DOUBLE_QUOTE_STRING_LITERAL
-   : '"' ('\\' . | ~ '"')*? '"'
+   : '"' DOUBLE_QUOTE_STRING_CONTENT* '"'
+   ;
+
+fragment DOUBLE_QUOTE_STRING_CONTENT
+   : '\\' '\\' '"' // \\" -> \" (avoid truncation e.g. "It\\"s ok")
+   | '\\' . // Backslash escape: \" -> "
+   | ~ ["\\]
    ;
 
 SINGLE_QUOTE_STRING_LITERAL
-   : '\'' ('\\' . | ~ '\'')*? '\''
+   : '\'' SINGLE_QUOTE_STRING_CONTENT* '\''
+   ;
+
+fragment SINGLE_QUOTE_STRING_CONTENT
+   : '\\' '\\' '\'' // \\' -> \' (avoid truncation e.g. 'It\\'s ok')
+   | '\\' . // Backslash escape: \' -> '
+   | ~ ['\\]
    ;
    //Characters and write it this way for case sensitivity
    

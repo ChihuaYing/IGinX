@@ -41,12 +41,15 @@ public abstract class AbstractQuoteState implements InputState {
       buffer.append(current);
       validSqlBuffer.append(current);
 
-      // 检查是否遇到结束的引号（考虑转义情况）
-      if (current == quote && last != '\\') {
-        client.setInputState(new NormalState());
-        // 将剩余字符交给新状态处理
-        String remaining = (i + 1 < length) ? command.substring(i + 1) : "";
-        return client.getInputState().handleInput(remaining, client);
+      if (current == quote) {
+        boolean isBackslashEscaped = (last == '\\');
+        if (!isBackslashEscaped) {
+          // 没有转义，结束引号状态
+          client.setInputState(new NormalState());
+          // 将剩余字符交给新状态处理
+          String remaining = (i + 1 < length) ? command.substring(i + 1) : "";
+          return client.getInputState().handleInput(remaining, client);
+        }
       }
 
       i++;

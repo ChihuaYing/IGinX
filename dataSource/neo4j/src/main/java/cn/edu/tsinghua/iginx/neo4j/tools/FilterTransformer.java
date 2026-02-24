@@ -20,10 +20,12 @@
 package cn.edu.tsinghua.iginx.neo4j.tools;
 
 import static cn.edu.tsinghua.iginx.neo4j.tools.Constants.IDENTITY_PROPERTY_NAME;
+import static cn.edu.tsinghua.iginx.neo4j.tools.Neo4jSchema.formatKeyExpression;
 import static cn.edu.tsinghua.iginx.neo4j.tools.Neo4jSchema.getQuoteName;
 
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.*;
 import cn.edu.tsinghua.iginx.thrift.DataType;
+import cn.edu.tsinghua.iginx.utils.QuotedStringUtils;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
@@ -98,7 +100,7 @@ public class FilterTransformer {
     if (key.startsWith("id(") && key.endsWith(")")) {
       return key + " " + op + " " + filter.getValue();
     }
-    return getQuotName(key) + " " + op + " " + filter.getValue();
+    return formatKeyExpression(key) + " " + op + " " + filter.getValue();
   }
 
   private String getFullPath(String path) {
@@ -130,17 +132,36 @@ public class FilterTransformer {
     switch (filter.getOp()) {
       case LIKE:
       case LIKE_AND:
-        value = "'^" + filter.getValue().getBinaryVAsString() + "$" + "'";
+        value =
+            "'^"
+                + (filter.getValue().getBinaryVAsString() == null
+                    ? ""
+                    : QuotedStringUtils.escapeQuotedContent(
+                        filter.getValue().getBinaryVAsString(), '\''))
+                + "$"
+                + "'";
         return path + " =~ " + value.toString().replace("%", ".*");
       case NOT_LIKE:
       case NOT_LIKE_AND:
-        value = "'^" + filter.getValue().getBinaryVAsString() + "$" + "'";
+        value =
+            "'^"
+                + (filter.getValue().getBinaryVAsString() == null
+                    ? ""
+                    : QuotedStringUtils.escapeQuotedContent(
+                        filter.getValue().getBinaryVAsString(), '\''))
+                + "$"
+                + "'";
         return " NOT " + path + " =~ " + value.toString().replace("%", ".*");
       default:
         op = Op.op2StrWithoutAndOr(filter.getOp()).replace("==", "=").replace("!=", "<>");
         value =
             filter.getValue().getDataType() == DataType.BINARY
-                ? "'" + filter.getValue().getBinaryVAsString() + "'"
+                ? "'"
+                    + (filter.getValue().getBinaryVAsString() == null
+                        ? ""
+                        : QuotedStringUtils.escapeQuotedContent(
+                            filter.getValue().getBinaryVAsString(), '\''))
+                    + "'"
                 : filter.getValue().getValue();
         break;
     }
@@ -205,7 +226,10 @@ public class FilterTransformer {
                 .map(
                     value -> {
                       if (value.getDataType() == DataType.BINARY) {
-                        return "'" + value.getBinaryVAsString() + "'";
+                        String s = value.getBinaryVAsString();
+                        return "'"
+                            + (s == null ? "" : QuotedStringUtils.escapeQuotedContent(s, '\''))
+                            + "'";
                       } else {
                         return value.getValue();
                       }

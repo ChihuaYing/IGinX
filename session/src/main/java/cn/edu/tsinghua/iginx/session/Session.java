@@ -1097,7 +1097,8 @@ public class Session {
     String path = res.getUDFModulePath();
     File file = new File(path);
     if (!file.isAbsolute()) {
-      statement = statement.replace(path, file.getAbsolutePath());
+      String absolutePath = file.getAbsolutePath();
+      statement = statement.replace(path, absolutePath);
     } else if (!isRemote) {
       return new LoadUDFResp(RpcUtils.SUCCESS);
     }

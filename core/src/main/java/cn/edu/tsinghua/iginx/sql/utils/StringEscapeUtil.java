@@ -20,75 +20,47 @@
 package cn.edu.tsinghua.iginx.sql.utils;
 
 public class StringEscapeUtil {
-
-  /** 把字符串中的转义序列（如 \n, \t, \\ 等）还原为真实字符 */
-  public static String unescape(String input) {
-    if (input == null) {
+  /**
+   * Returns the unescaped content of a string literal token. Strips surrounding quotes and applies
+   * backslash unescape: only the delimiting quote is escaped (e.g. \' → '). Other \x output \ then
+   * x next iteration, so \\' naturally becomes \ + '.
+   *
+   * @param tokenText the string literal token text including quotes
+   * @return the content with backslash unescape applied
+   */
+  public static String unescapeStringLiteral(String tokenText) {
+    if (tokenText == null || tokenText.length() < 2) {
       return "";
     }
+    char q = tokenText.charAt(0);
+    char last = tokenText.charAt(tokenText.length() - 1);
+    if (q != last || (q != '\'' && q != '"' && q != '`')) {
+      return tokenText;
+    }
+    String inner = tokenText.substring(1, tokenText.length() - 1);
+    return unescapeBackslashQuoted(inner, q);
+  }
 
-    StringBuilder target = new StringBuilder(input.length());
-    boolean escaping = false;
-
-    for (int i = 0; i < input.length(); i++) {
-      char c = input.charAt(i);
-
-      if (!escaping) {
-        if (c == '\\') {
-          escaping = true;
+  /**
+   * Unescapes backslash for the given quote type: only \quoteChar is unescaped; other \x output \
+   * and then x is processed next iteration (so \\' → \ then ').
+   */
+  private static String unescapeBackslashQuoted(String content, char quoteChar) {
+    StringBuilder sb = new StringBuilder(content.length());
+    for (int i = 0; i < content.length(); i++) {
+      char c = content.charAt(i);
+      if (c == '\\' && i + 1 < content.length()) {
+        char next = content.charAt(i + 1);
+        if (next == quoteChar) {
+          sb.append(quoteChar);
+          i++;
         } else {
-          target.append(c);
+          sb.append(c); // literal \; next char processed next iteration (so \\' → \ then ')
         }
-        continue;
+      } else {
+        sb.append(c);
       }
-
-      // 进入 escaping 状态
-      switch (c) {
-        case 'b':
-          target.append('\b');
-          break;
-        case 'f':
-          target.append('\f');
-          break;
-        case 'n':
-          target.append('\n');
-          break;
-        case 'r':
-          target.append('\r');
-          break;
-        case 't':
-          target.append('\t');
-          break;
-        case '\\':
-          target.append('\\');
-          break;
-        case 'u': // Unicode 转义
-          if (i + 4 < input.length()) {
-            String hex = input.substring(i + 1, i + 5);
-            try {
-              int code = Integer.parseInt(hex, 16);
-              target.append((char) code);
-              i += 4;
-            } catch (NumberFormatException e) {
-              target.append("\\u").append(hex); // 非法的 Unicode 序列，原样输出
-              i += 4;
-            }
-          } else {
-            target.append("\\u"); // 不完整的 Unicode 序列
-          }
-          break;
-        default:
-          // 非标准转义，原样保留
-          target.append('\\').append(c);
-      }
-      escaping = false;
     }
-
-    // 处理最后一个单独的 '\'
-    if (escaping) {
-      target.append('\\');
-    }
-
-    return target.toString();
+    return sb.toString();
   }
 }

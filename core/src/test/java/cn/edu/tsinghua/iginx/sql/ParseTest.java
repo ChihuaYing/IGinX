@@ -19,9 +19,7 @@
  */
 package cn.edu.tsinghua.iginx.sql;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import cn.edu.tsinghua.iginx.engine.shared.expr.BaseExpression;
 import cn.edu.tsinghua.iginx.engine.shared.expr.FuncExpression;
@@ -29,13 +27,7 @@ import cn.edu.tsinghua.iginx.engine.shared.expr.KeyExpression;
 import cn.edu.tsinghua.iginx.engine.shared.function.MappingType;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.Op;
 import cn.edu.tsinghua.iginx.engine.shared.operator.filter.PathFilter;
-import cn.edu.tsinghua.iginx.sql.statement.AddStorageEngineStatement;
-import cn.edu.tsinghua.iginx.sql.statement.DeleteColumnsStatement;
-import cn.edu.tsinghua.iginx.sql.statement.DeleteStatement;
-import cn.edu.tsinghua.iginx.sql.statement.InsertFromSelectStatement;
-import cn.edu.tsinghua.iginx.sql.statement.InsertStatement;
-import cn.edu.tsinghua.iginx.sql.statement.ShowReplicationStatement;
-import cn.edu.tsinghua.iginx.sql.statement.StatementType;
+import cn.edu.tsinghua.iginx.sql.statement.*;
 import cn.edu.tsinghua.iginx.sql.statement.frompart.FromPartType;
 import cn.edu.tsinghua.iginx.sql.statement.frompart.SubQueryFromPart;
 import cn.edu.tsinghua.iginx.sql.statement.frompart.join.JoinCondition;
@@ -234,10 +226,46 @@ public class ParseTest {
 
   @Test
   public void testParseEscape() {
+    // Backtick identifiers: backslash escape \` → `
+    // So \n and \. stay as literal backslash-n and backslash-dot
     String s = "select `a\\nb\\.txt` from escape;";
     UnarySelectStatement statement = (UnarySelectStatement) TestUtils.buildStatement(s);
     assertEquals(
-        new HashSet<>(Collections.singletonList("escape.a\nb\\.txt")), statement.getPathSet());
+        new HashSet<>(Collections.singletonList("escape.a\\nb\\.txt")), statement.getPathSet());
+
+    // Backslash escape backtick: \` → `
+    String s2 = "select `a\\`b.txt` from escape;";
+    UnarySelectStatement statement2 = (UnarySelectStatement) TestUtils.buildStatement(s2);
+    assertEquals(
+        new HashSet<>(Collections.singletonList("escape.a`b.txt")), statement2.getPathSet());
+  }
+
+  /** Tag key: 反引号包裹（可选）；Tag value: 单/双引号包裹（可选）。仅做引号加倍，不做反斜杠转义。 */
+  @Test
+  public void testParseTagKeyTagValue() {
+    // 反引号 key + 单引号 value（'' → '）
+    String insert1 =
+        "INSERT INTO root.sg (key, s[`host`='localhost'], v[`dc`='dc1']) values (1, 2, 3);";
+    InsertStatement stmt1 = (InsertStatement) TestUtils.buildStatement(insert1);
+    assertEquals(2, stmt1.getTagsList().size());
+    assertEquals(Collections.singletonMap("host", "localhost"), stmt1.getTagsList().get(0));
+    assertEquals(Collections.singletonMap("dc", "dc1"), stmt1.getTagsList().get(1));
+
+    // 反引号 key + 双引号 value
+    String insert2 = "INSERT INTO root.sg (key, s[`env`=\"prod\"]) values (1, 2);";
+    InsertStatement stmt2 = (InsertStatement) TestUtils.buildStatement(insert2);
+    assertEquals(1, stmt2.getTagsList().size());
+    assertEquals(Collections.singletonMap("env", "prod"), stmt2.getTagsList().get(0));
+
+    // 无引号（ID）仍兼容
+    String insert3 = "INSERT INTO root.sg (key, s[host=local]) values (1, 2);";
+    InsertStatement stmt3 = (InsertStatement) TestUtils.buildStatement(insert3);
+    assertEquals(Collections.singletonMap("host", "local"), stmt3.getTagsList().get(0));
+
+    // 单引号 value 内 \' → '
+    String insert4 = "INSERT INTO root.sg (key, s[`k`='It\\'s OK']) values (1, 2);";
+    InsertStatement stmt4 = (InsertStatement) TestUtils.buildStatement(insert4);
+    assertEquals(Collections.singletonMap("k", "It's OK"), stmt4.getTagsList().get(0));
   }
 
   @Test
@@ -248,29 +276,89 @@ public class ParseTest {
     assertEquals(StatementType.SHOW_REPLICATION, statement.statementType);
   }
 
+  /**
+   * 测试 ADD STORAGEENGINE 语句的解析功能
+   *
+   * <p>测试覆盖： 1. 引号（双引号 \" 转义、单引号 \' 转义、空字符串） 2. 多引擎与等号混合 3. 反斜杠转义 \' \" \\
+   */
   @Test
   public void testParseAddStorageEngine() {
-    String addStorageEngineStr =
-        "ADD STORAGEENGINE (\"127.0.0.1\", 6667, \"iotdb12\", \"username=root, password=root\"), ('127.0.0.1', 6668, 'influxdb', 'key1=val1, key2=val2');";
-    AddStorageEngineStatement statement =
-        (AddStorageEngineStatement) TestUtils.buildStatement(addStorageEngineStr);
+    // ========== 测试用例 1: 双引号 \" → "、单引号 \' → '、空字符串 ==========
+    String addStorageEngineStrQuotes =
+        "ADD STORAGEENGINE (\"127.0.0.1\", 3309, \"relational\", OPTIONS ("
+            + "engine \"mysql\", schema_prefix \"test\\\"value\", "
+            + "d1 \"Say \\\"Hello\\\"\", d2 \"He\\\"s here\", d3 \"She said \\\"OK\\\"\", "
+            + "s1 'It\\'s OK', s2 'He\\'s fine', s3 'She said \\'Hello\\'', empty_key '', non_empty 'value'));";
+    AddStorageEngineStatement statementQuotes =
+        (AddStorageEngineStatement) TestUtils.buildStatement(addStorageEngineStrQuotes);
 
-    assertEquals(2, statement.getEngines().size());
+    assertEquals(1, statementQuotes.getEngines().size());
+    Map<String, String> extraQuotes = new HashMap<>();
+    extraQuotes.put("engine", "mysql");
+    extraQuotes.put("schema_prefix", "test\"value");
+    extraQuotes.put("d1", "Say \"Hello\"");
+    extraQuotes.put("d2", "He\"s here");
+    extraQuotes.put("d3", "She said \"OK\"");
+    extraQuotes.put("s1", "It's OK");
+    extraQuotes.put("s2", "He's fine");
+    extraQuotes.put("s3", "She said 'Hello'");
+    extraQuotes.put("empty_key", "");
+    extraQuotes.put("non_empty", "value");
+    StorageEngine engineQuotes =
+        new StorageEngine("127.0.0.1", 3309, StorageEngineType.relational, extraQuotes);
+    assertEquals(engineQuotes, statementQuotes.getEngines().get(0));
 
-    Map<String, String> extra01 = new HashMap<>();
-    extra01.put("username", "root");
-    extra01.put("password", "root");
-    StorageEngine engine01 =
-        new StorageEngine("127.0.0.1", 6667, StorageEngineType.iotdb12, extra01);
+    // ========== 测试用例 2: 多个存储引擎、等号混合 ==========
+    String addStorageEngineStrMultipleMixed =
+        "ADD STORAGEENGINE (\"127.0.0.1\", 6667, \"iotdb12\", OPTIONS (username = 'root', password 'root')), "
+            + "('127.0.0.1', 6668, 'influxdb', OPTIONS (key1 'val1', key2 = 'val2'));";
+    AddStorageEngineStatement statementMultipleMixed =
+        (AddStorageEngineStatement) TestUtils.buildStatement(addStorageEngineStrMultipleMixed);
 
-    Map<String, String> extra02 = new HashMap<>();
-    extra02.put("key1", "val1");
-    extra02.put("key2", "val2");
-    StorageEngine engine02 =
-        new StorageEngine("127.0.0.1", 6668, StorageEngineType.influxdb, extra02);
+    assertEquals(2, statementMultipleMixed.getEngines().size());
+    Map<String, String> extra09 = new HashMap<>();
+    extra09.put("username", "root");
+    extra09.put("password", "root");
+    StorageEngine engine09 =
+        new StorageEngine("127.0.0.1", 6667, StorageEngineType.iotdb12, extra09);
 
-    assertEquals(engine01, statement.getEngines().get(0));
-    assertEquals(engine02, statement.getEngines().get(1));
+    Map<String, String> extra10 = new HashMap<>();
+    extra10.put("key1", "val1");
+    extra10.put("key2", "val2");
+    StorageEngine engine10 =
+        new StorageEngine("127.0.0.1", 6668, StorageEngineType.influxdb, extra10);
+
+    assertEquals(engine09, statementMultipleMixed.getEngines().get(0));
+    assertEquals(engine10, statementMultipleMixed.getEngines().get(1));
+
+    // ========== 测试用例 3: StringEscapeUtil 仅转义界定引号 \' ==========
+    String addStorageEngineStrWithAllEscapes =
+        "ADD STORAGEENGINE ('127.0.0.1', 3315, 'relational', OPTIONS ("
+            + "path 'C:\\\\Users\\\\test\\\\file.txt', tab 'col1\\tcol2', null_char 'text\\0end', unicode '\\u4F60\\u597D', quote 'It\\'s OK', "
+            + "schema_prefix ',\\n\\r\\f\\b\\\"\\'\\u0041', "
+            + "newline '\\n', carriage '\\r', formfeed '\\f', backspace '\\b', "
+            + "backslash '\\\\'));";
+    AddStorageEngineStatement statementWithAllEscapes =
+        (AddStorageEngineStatement) TestUtils.buildStatement(addStorageEngineStrWithAllEscapes);
+
+    assertEquals(1, statementWithAllEscapes.getEngines().size());
+    Map<String, String> extra15 = new HashMap<>();
+    extra15.put("path", "C:\\\\Users\\\\test\\\\file.txt");
+    extra15.put("tab", "col1\\tcol2");
+    extra15.put("null_char", "text\\0end");
+    extra15.put("unicode", "\\u4F60\\u597D");
+    extra15.put("quote", "It's OK");
+    extra15.put("schema_prefix", ",\\n\\r\\f\\b\\\"'\\u0041");
+    extra15.put("newline", "\\n");
+    extra15.put("carriage", "\\r");
+    extra15.put("formfeed", "\\f");
+    extra15.put("backspace", "\\b");
+    extra15.put("backslash", "\\\\");
+    StorageEngine actual = statementWithAllEscapes.getEngines().get(0);
+    assertEquals("127.0.0.1", actual.getIp());
+    assertEquals(3315, actual.getPort());
+    assertEquals(StorageEngineType.relational, actual.getType());
+    assertEquals(extra15, actual.getExtraParams());
   }
 
   @Test
