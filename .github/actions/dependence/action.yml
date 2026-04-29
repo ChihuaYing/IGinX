@@ -69,7 +69,7 @@ runs:
               channel-priority: strict
               run-post: "false"
 
-      # use brew-provided colima+lima to avoid limactl/colima version mismatch on macOS.
+        # use brew-provided colima+lima to avoid limactl/colima version mismatch on macOS.
         - if: runner.os == 'macOS' &&  inputs.docker-required=='true'
           name: Install Docker on MacOS
           shell: bash
