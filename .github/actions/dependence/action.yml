@@ -75,7 +75,7 @@ runs:
           run: |
               brew update
               brew install docker colima
-              colima start --cpu 2 --memory 4 --arch arm64 --vm-type=qemu
+              colima start --arch arm64 --vm-type=qemu
               docker --version
 
         - if: inputs.scope=='all'
