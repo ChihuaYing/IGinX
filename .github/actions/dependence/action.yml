@@ -69,11 +69,15 @@ runs:
               channel-priority: strict
               run-post: "false"
 
-        - if: runner.os == 'macOS' && inputs.docker-required == 'true'
+      # use brew-provided colima+lima to avoid limactl/colima version mismatch on macOS.
+        - if: runner.os == 'macOS' &&  inputs.docker-required=='true'
           name: Install Docker on MacOS
-          uses: douglascamata/setup-docker-macos-action@v1-alpha
-          with:
-              colima-args: "--network-address --arch arm64 --vm-type=qemu"
+          shell: bash
+          run: |
+              brew update
+              brew install docker qemu lima colima
+              colima start --network-address --arch arm64 --vm-type=qemu
+              docker --version
 
         - if: inputs.scope=='all'
           name: Write Python dependencies to requirements.txt
