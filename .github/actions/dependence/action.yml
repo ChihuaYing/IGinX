@@ -69,14 +69,15 @@ runs:
               channel-priority: strict
               run-post: "false"
 
-        # use brew-provided colima+lima to avoid limactl/colima version mismatch on macOS.
+        # use brew-provided colima+lima and vz driver to avoid qemu hostagent issues on macOS.
         - if: runner.os == 'macOS' &&  inputs.docker-required=='true'
           name: Install Docker on MacOS
           shell: bash
           run: |
               brew update
               brew install docker qemu lima colima
-              colima start --network-address --arch arm64 --vm-type=qemu
+              colima delete -f || true
+              colima start --network-address --arch arm64 --vm-type=vz
               docker --version
 
         - if: inputs.scope=='all'
