@@ -71,7 +71,7 @@ runs:
 
         - if: runner.os == 'macOS' && inputs.docker-required == 'true'
           name: Install Docker on MacOS
-          uses: abiosoft/colima-action@v0
+          uses: douglascamata/setup-docker-macos-action@v1-alpha
           with:
               colima-args: "--network-address --arch arm64 --vm-type=qemu"
 
