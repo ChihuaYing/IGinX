@@ -54,7 +54,8 @@ if not exist "%datadir%" (
     mkdir "%datadir%"
 )
 
-set command=docker run --name="%name%" -dit --add-host=host.docker.internal:host-gateway --mount type=bind,source=!datadir!,target=C:/iginx_client/data iginx-client:0.9.0-SNAPSHOT
+for /f "usebackq tokens=*" %%i in (`docker network inspect nat --format "{{(index .IPAM.Config 0).Gateway}}"`) do set HOST_IP=%%i
+set command=docker run --name="%name%" -dit --add-host=host.docker.internal:%HOST_IP% --mount type=bind,source=!datadir!,target=C:/iginx_client/data iginx-client:0.9.0-SNAPSHOT
 echo %command%
 %command%
 
