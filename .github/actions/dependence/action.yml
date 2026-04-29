@@ -74,7 +74,7 @@ runs:
           shell: bash
           run: |
               brew update
-              brew install docker colima
+              brew install docker qemu lima
               colima start --arch arm64 --vm-type=qemu
               docker --version
 
