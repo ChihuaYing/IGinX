@@ -79,12 +79,7 @@ runs:
               HOMEBREW_PREFIX=$(brew --prefix)
               COLIMA_PATH="$HOMEBREW_PREFIX/bin/colima"
               LIMA_VERSION=1.2.1
-              LIMA_ARCH=$(uname -m)
-              if [ "$LIMA_ARCH" = "x86_64" ]; then
-                LIMA_ARCH=x86_64
-              else
-                LIMA_ARCH=arm64
-              fi
+              LIMA_ARCH=arm64
               sudo curl -fsSL -o "$COLIMA_PATH" https://github.com/abiosoft/colima/releases/download/v0.8.1/colima-Darwin-${LIMA_ARCH}
               sudo chmod +x "$COLIMA_PATH"
               curl -fsSL -o /tmp/lima.tar.gz "https://github.com/lima-vm/lima/releases/download/v${LIMA_VERSION}/lima-${LIMA_VERSION}-Darwin-${LIMA_ARCH}.tar.gz"
@@ -92,14 +87,12 @@ runs:
               tar -xzf /tmp/lima.tar.gz -C /tmp/lima
               sudo install /tmp/lima/bin/limactl "$HOMEBREW_PREFIX/bin/limactl"
               sudo install /tmp/lima/bin/lima "$HOMEBREW_PREFIX/bin/lima"
+              sudo mkdir -p "$HOMEBREW_PREFIX/share/lima"
+              sudo cp -r /tmp/lima/share/lima/* "$HOMEBREW_PREFIX/share/lima/"
               colima version
               limactl --version
               colima delete -f || true
-              COLIMA_ARCH=aarch64
-              if [ "$(uname -m)" = "x86_64" ]; then
-                COLIMA_ARCH=x86_64
-              fi
-              colima start --network-address --arch "$COLIMA_ARCH" --vm-type=qemu --cpu 2 --memory 4 --disk 20
+              colima start --network-address --arch aarch64 --vm-type=qemu
               docker info
 
         - if: inputs.scope=='all'
