@@ -69,16 +69,37 @@ runs:
               channel-priority: strict
               run-post: "false"
 
-        # Keep colima and lima from Homebrew in sync. Mixing a new colima with an old patched limactl can break on macOS runners.
+        # Use a pinned Colima/Lima stack on macOS runners. Homebrew's latest Lima has regressed on GitHub macos-latest arm64 with qemu.
         - if: runner.os == 'macOS' &&  inputs.docker-required=='true'
           name: Install Docker on MacOS
           shell: bash
           run: |
               brew update
-              brew install docker qemu lima colima
-              brew install lima-additional-guestagents || true
+              brew install docker qemu
+              HOMEBREW_PREFIX=$(brew --prefix)
+              COLIMA_PATH="$HOMEBREW_PREFIX/bin/colima"
+              LIMA_VERSION=1.2.1
+              LIMA_ARCH=$(uname -m)
+              if [ "$LIMA_ARCH" = "x86_64" ]; then
+                LIMA_ARCH=x86_64
+              else
+                LIMA_ARCH=arm64
+              fi
+              sudo curl -fsSL -o "$COLIMA_PATH" https://github.com/abiosoft/colima/releases/download/v0.8.1/colima-Darwin-${LIMA_ARCH}
+              sudo chmod +x "$COLIMA_PATH"
+              curl -fsSL -o /tmp/lima.tar.gz "https://github.com/lima-vm/lima/releases/download/v${LIMA_VERSION}/lima-${LIMA_VERSION}-Darwin-${LIMA_ARCH}.tar.gz"
+              rm -rf /tmp/lima && mkdir -p /tmp/lima
+              tar -xzf /tmp/lima.tar.gz -C /tmp/lima
+              sudo install /tmp/lima/bin/limactl "$HOMEBREW_PREFIX/bin/limactl"
+              sudo install /tmp/lima/bin/lima "$HOMEBREW_PREFIX/bin/lima"
+              colima version
+              limactl --version
               colima delete -f || true
-              colima start --network-address --vm-type=qemu
+              COLIMA_ARCH=aarch64
+              if [ "$(uname -m)" = "x86_64" ]; then
+                COLIMA_ARCH=x86_64
+              fi
+              colima start --network-address --arch "$COLIMA_ARCH" --vm-type=qemu --cpu 2 --memory 4 --disk 20
               docker info
 
         - if: inputs.scope=='all'
