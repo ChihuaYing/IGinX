@@ -429,6 +429,59 @@ public class TransformIT {
   }
 
   @Test
+  public void commitScheduledBatchTransformWithTempTableTest() {
+    LOGGER.info("commitScheduledBatchTransformWithTempTableTest");
+    try {
+      String[] taskList = {"RowSumTransformer", "SumTransformerNoKey"};
+      for (String task : taskList) {
+        registerTask(task);
+      }
+
+      session.executeSql("INSERT INTO scheduleBatch(key, s1, s2) VALUES (1, 1, 2);");
+      session.executeSql("INSERT INTO scheduleBatch(key, s1, s2) VALUES (2, 10, 20);");
+
+      String yamlFileName =
+          OUTPUT_DIR_PREFIX + File.separator + "TransformScheduledBatchTransform.yaml";
+      long jobId = session.commitTransformJob(String.format(COMMIT_SQL_FORMATTER, yamlFileName));
+      try {
+        Thread.sleep(5000L); // wait for the scheduled job to run at least twice
+        verifyScheduledBatchTransformResult(44L);
+      } finally {
+        cancelJob(jobId);
+      }
+    } catch (SessionException | InterruptedException e) {
+      LOGGER.error("Transform:  execute fail. Caused by:", e);
+      fail();
+    }
+  }
+
+  private void verifyScheduledBatchTransformResult(long expectedSum) throws SessionException {
+    SessionExecuteSqlResult queryResult = session.executeSql("SELECT * FROM transform;");
+    int keyIndex = queryResult.getPaths().indexOf("transform.key");
+    int sumIndex = queryResult.getPaths().indexOf("transform.sum");
+    for (int i = 0; i < queryResult.getValues().size(); i++) {
+      List<Object> row = queryResult.getValues().get(i);
+      Object keyValue = keyIndex >= 0 ? row.get(keyIndex) : "N/A";
+      Object sumValue = sumIndex >= 0 ? row.get(sumIndex) : "N/A";
+      LOGGER.info(
+          "Scheduled batch transform result row[{}]: key={}, sum={}, raw={}",
+          i,
+          keyValue,
+          sumValue,
+          row);
+    }
+    if (needCompareResult) {
+      assertNotEquals(-1, keyIndex);
+      assertNotEquals(-1, sumIndex);
+    }
+
+    assertTrue(queryResult.getValues().size() >= 2);
+    for (List<Object> row : queryResult.getValues()) {
+      assertEquals(expectedSum, row.get(sumIndex));
+    }
+  }
+
+  @Test
   public void commitStopOnFailureTest() {
     LOGGER.info("commitStopOnFailureTest");
     try {
