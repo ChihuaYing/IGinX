@@ -17,3 +17,33 @@
 class EmptyTransformer:
     def transform(self, rows):
         return [rows[0]]
+
+
+class NoneTransformer:
+    def transform(self, rows):
+        return None
+
+
+class ImplicitNoneTransformer:
+    def transform(self, rows):
+        rows[0]
+
+
+class NonTwoDimensionalTransformer:
+    def transform(self, rows):
+        return tuple(rows[0])
+
+
+class ColumnCountMismatchTransformer:
+    def transform(self, rows):
+        return [["key", "value"], [1]]
+
+
+class InvalidValueTypeTransformer:
+    def transform(self, rows):
+        return [["key", "value"], [1, {"value": 1}]]
+
+
+class InconsistentColumnTypeTransformer:
+    def transform(self, rows):
+        return [["key", "value"], [1, 1], [2, "value"]]
