@@ -1,0 +1,21 @@
+---
+taskList:
+  - taskType: "sql"
+    timeout: 10000000
+    sqlList:
+      - "SELECT s1, s2 FROM scheduleBatch WHERE key <= 2;"
+  - taskType: "python"
+    dataFlowType: "batch"
+    timeout: 10000000
+    pyTaskName: "SumTransformerNoKey"
+    outputPrefix: "batchsum"
+  - taskType: "sql"
+    timeout: 10000000
+    sqlList:
+      - "SELECT s1, s1, s2 FROM batchsum.scheduleBatch;"
+  - taskType: "python"
+    dataFlowType: "stream"
+    timeout: 10000000
+    pyTaskName: "RowSumTransformer"
+schedule: "every 2 second"
+exportType: "iginx"
