@@ -23,6 +23,7 @@ import static cn.edu.tsinghua.iginx.metadata.utils.IdUtils.generateDummyStorageU
 import static cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus.EXECUTING;
 import static cn.edu.tsinghua.iginx.metadata.utils.ReshardStatus.NON_RESHARDING;
 import static cn.edu.tsinghua.iginx.metadata.utils.StorageEngineUtils.checkEmbeddedStorageExtraParams;
+import static cn.edu.tsinghua.iginx.metadata.utils.StorageEngineUtils.keepsHostName;
 import static cn.edu.tsinghua.iginx.utils.HostUtils.convertHostNameToHostAddress;
 import static cn.edu.tsinghua.iginx.utils.HostUtils.isValidHost;
 
@@ -1289,7 +1290,9 @@ public class DefaultMetaManager implements IMetaManager {
       StorageEngineMeta storage =
           new StorageEngineMeta(
               -1,
-              ip,
+              keepsHostName(StorageEngineType.valueOf(storageEngine.toLowerCase()), extraParams)
+                  ? storageEngineParts[0].trim().toLowerCase(Locale.ROOT)
+                  : ip,
               port,
               hasData,
               dataPrefix,

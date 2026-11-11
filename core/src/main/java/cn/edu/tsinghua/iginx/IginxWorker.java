@@ -278,7 +278,7 @@ public class IginxWorker implements IService.Iface {
             metaSchemaPrefix = meta.getSchemaPrefix(),
             metaDataPrefix = meta.getDataPrefix();
         int metaPort = meta.getPort();
-        if (!infoIp.equals(metaIp)) {
+        if (!infoIp.equals(metaIp) && !info.getIp().trim().equalsIgnoreCase(metaIp)) {
           continue;
         }
         if (infoPort != metaPort) {
@@ -379,7 +379,9 @@ public class IginxWorker implements IService.Iface {
       StorageEngineMeta meta =
           new StorageEngineMeta(
               -1,
-              ip,
+              keepsHostName(type, extraParams)
+                  ? storageEngine.getIp().trim().toLowerCase(Locale.ROOT)
+                  : ip,
               port,
               hasData,
               dataPrefix,

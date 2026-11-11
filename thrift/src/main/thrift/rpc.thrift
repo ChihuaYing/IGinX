@@ -39,7 +39,7 @@ enum StorageEngineType {
     redis,
     vectordb,
     neo4j,
-    minio
+    s3
 }
 
 enum AggregateType {

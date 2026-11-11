@@ -25,7 +25,7 @@ import static cn.edu.tsinghua.iginx.integration.expansion.minio.MinIOHistoryData
 import static cn.edu.tsinghua.iginx.integration.expansion.minio.MinIOHistoryDataGenerator.FILE_TREE_PORT;
 import static cn.edu.tsinghua.iginx.integration.expansion.minio.MinIOHistoryDataGenerator.PASSWORD;
 import static cn.edu.tsinghua.iginx.integration.expansion.minio.MinIOHistoryDataGenerator.USERNAME;
-import static cn.edu.tsinghua.iginx.thrift.StorageEngineType.minio;
+import static cn.edu.tsinghua.iginx.thrift.StorageEngineType.s3;
 import static org.junit.Assert.fail;
 
 import cn.edu.tsinghua.iginx.exception.SessionException;
@@ -48,7 +48,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
   private static final String CSV_CONFIG = "dummy.config.formats.CSV.";
 
   public MinIOCapacityExpansionIT() {
-    super(minio, createPortsToExtraParams(getAddStorageParams()), new MinIOHistoryDataGenerator());
+    super(s3, createPortsToExtraParams(getAddStorageParams()), new MinIOHistoryDataGenerator());
     Map<String, String> wrongSecret = new LinkedHashMap<>(getAddStorageParams());
     wrongSecret.put("password", "wrong_password");
     wrongExtraParams.add(wrongSecret);
@@ -57,6 +57,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
 
   private static Map<String, String> newParamsWithCredentials() {
     Map<String, String> params = new LinkedHashMap<>();
+    params.put("engine", "minio");
     params.put("username", USERNAME);
     params.put("password", PASSWORD);
     return params;
@@ -90,7 +91,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
     super.testShowColumns();
 
     try (TempDummyDataSource ignored =
-        new TempDummyDataSource(session, FILE_TREE_PORT, minio, getFileTreeDummyParams("a"))) {
+        new TempDummyDataSource(session, FILE_TREE_PORT, s3, getFileTreeDummyParams("a"))) {
       testShowDummyColumns();
     } catch (SessionException e) {
       LOGGER.error("add or remove read only storage engine failed ", e);
@@ -98,7 +99,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
     }
 
     try (TempDummyDataSource ignored =
-        new TempDummyDataSource(session, FILE_TREE_PORT, minio, getLegacyDummyParams("a"))) {
+        new TempDummyDataSource(session, FILE_TREE_PORT, s3, getLegacyDummyParams("a"))) {
       testShowLegacyDummyColumns();
     } catch (SessionException e) {
       LOGGER.error("add or remove read only storage engine failed ", e);
@@ -118,10 +119,9 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
   /** test 桶中 a、csv 两个目录下的 txt、parquet、csv/tsv 文件按 FileTree 结构挂载后的查询 */
   private void testQueryFileTree() {
     try (TempDummyDataSource ignored =
-            new TempDummyDataSource(session, FILE_TREE_PORT, minio, getFileTreeDummyParams("a"));
+            new TempDummyDataSource(session, FILE_TREE_PORT, s3, getFileTreeDummyParams("a"));
         TempDummyDataSource ignoredCsv =
-            new TempDummyDataSource(
-                session, FILE_TREE_CSV_PORT, minio, getFileTreeCsvDummyParams())) {
+            new TempDummyDataSource(session, FILE_TREE_CSV_PORT, s3, getFileTreeCsvDummyParams())) {
       testQueryRawChunks();
       testQueryParquets();
       testQueryCSV();
@@ -138,7 +138,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
       return;
     }
     try (TempDummyDataSource ignored =
-        new TempDummyDataSource(session, FILE_TREE_PORT, minio, getFileTreeEscapeDummyParams())) {
+        new TempDummyDataSource(session, FILE_TREE_PORT, s3, getFileTreeEscapeDummyParams())) {
       String statement = "select `a\nb\\.txt` from escape.path;";
       String expect =
           "ResultSets:\n"
@@ -160,7 +160,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
         new TempDummyDataSource(
             session,
             FILE_TREE_PORT,
-            minio,
+            s3,
             getFileTreeDummyParams("txt/dir!@#$%^&()[]{};',.=+~ -目录"))) {
       String statement = "SHOW COLUMNS `dir!@#$%^&()[]{};',.=+~ -目录`.*;";
       String expected =
@@ -530,7 +530,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
   /** LegacyFilesystem 的 key 为数据块起始的字节偏移，块大小为 chunk_size_in_bytes */
   private void testQueryLegacyFilesystem() {
     try (TempDummyDataSource ignored =
-        new TempDummyDataSource(session, FILE_TREE_PORT, minio, getLegacyDummyParams("a", 10))) {
+        new TempDummyDataSource(session, FILE_TREE_PORT, s3, getLegacyDummyParams("a", 10))) {
       String statement = "select 3\\.txt from a.f.g;";
       String expect =
           "ResultSets:\n"
@@ -567,10 +567,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
   private void testQueryLegacyFilesystemSpecialPath() {
     try (TempDummyDataSource ignored =
         new TempDummyDataSource(
-            session,
-            FILE_TREE_PORT,
-            minio,
-            getLegacyDummyParams("txt/dir!@#$%^&()[]{};',.=+~ -目录"))) {
+            session, FILE_TREE_PORT, s3, getLegacyDummyParams("txt/dir!@#$%^&()[]{};',.=+~ -目录"))) {
       String statement = "SHOW COLUMNS `dir!@#$%^&()[]{};',\\.=+~ -目录`.*;";
       String expected =
           "Columns:\n"
@@ -603,7 +600,7 @@ public class MinIOCapacityExpansionIT extends BaseCapacityExpansionIT {
     }
     try (TempDummyDataSource ignored =
         new TempDummyDataSource(
-            session, FILE_TREE_PORT, minio, getLegacyDummyParams("txt/dir\\Ndir\\Ddir"))) {
+            session, FILE_TREE_PORT, s3, getLegacyDummyParams("txt/dir\\Ndir\\Ddir"))) {
       String statement = "SHOW COLUMNS `dir\\Ndir\\Ddir`.*;";
       String expected =
           "Columns:\n"

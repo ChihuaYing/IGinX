@@ -70,7 +70,7 @@
         </dependency>
         <dependency>
             <groupId>cn.edu.tsinghua</groupId>
-            <artifactId>minio</artifactId>
+            <artifactId>s3</artifactId>
         </dependency>
     </dependencies>
 

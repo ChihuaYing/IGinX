@@ -37,6 +37,17 @@ public class StorageEngineUtils {
     return type.equals(StorageEngineType.filesystem);
   }
 
+  /**
+   * 注册时是否在元数据中保留原始域名，而不是解析出的 IP。阿里云 OSS 只接受虚拟主机风格的请求（桶名拼在域名前）， TLS 证书和服务端的 Host 校验也都要求域名，用 IP
+   * 无法访问，所以 s3 类型中 engine 为 aliyun 的引擎保留域名； 其他引擎仍保存 IP，地址比较等逻辑不受影响。
+   */
+  public static boolean keepsHostName(StorageEngineType type, Map<String, String> extraParams) {
+    String engine = extraParams.get("engine");
+    return type.equals(StorageEngineType.s3)
+        && engine != null
+        && engine.trim().equalsIgnoreCase("aliyun");
+  }
+
   private static boolean isDirValid(String dir) {
     // 检查路径是否为空
     if (dir == null || dir.isEmpty()) {

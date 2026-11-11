@@ -23,7 +23,11 @@ import cn.edu.tsinghua.iginx.engine.shared.data.write.DataView;
 import cn.edu.tsinghua.iginx.integration.expansion.BaseHistoryDataGenerator;
 import cn.edu.tsinghua.iginx.integration.expansion.constant.Constant;
 import cn.edu.tsinghua.iginx.integration.expansion.utils.DataViewGenerator;
-import cn.edu.tsinghua.iginx.minio.kv.ObjectKvManager;
+import cn.edu.tsinghua.iginx.s3.S3Config;
+import cn.edu.tsinghua.iginx.s3.common.S3Client;
+import cn.edu.tsinghua.iginx.s3.kv.ObjectKvManager;
+import cn.edu.tsinghua.iginx.s3.strategy.S3Strategy;
+import cn.edu.tsinghua.iginx.s3.strategy.S3StrategyFactory;
 import cn.edu.tsinghua.iginx.thrift.DataType;
 import io.minio.BucketExistsArgs;
 import io.minio.ListObjectsArgs;
@@ -38,7 +42,9 @@ import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import okhttp3.OkHttpClient;
@@ -99,6 +105,17 @@ public class MinIOHistoryDataGenerator extends BaseHistoryDataGenerator {
         .build();
   }
 
+  /** 与 IGinX 中 engine 为 minio 的引擎使用同样的客户端配置 */
+  static S3Client newS3Client(int port) throws Exception {
+    Map<String, String> params = new HashMap<>();
+    params.put(S3Config.ENGINE, S3StrategyFactory.MINIO);
+    params.put(S3Config.USERNAME, USERNAME);
+    params.put(S3Config.PASSWORD, PASSWORD);
+    S3Config config = S3Config.of(LOCAL_IP, port, params, false, false);
+    S3Strategy strategy = S3StrategyFactory.create(config);
+    return strategy.createClient(HTTP_CLIENT);
+  }
+
   @Override
   public void writeHistoryData(
       int port, List<String> pathList, List<DataType> dataTypeList, List<List<Object>> valuesList) {
@@ -123,7 +140,7 @@ public class MinIOHistoryDataGenerator extends BaseHistoryDataGenerator {
     try {
       ensureBucket(client, DUMMY_BUCKET);
       try (ObjectKvManager manager =
-          new ObjectKvManager(client, DUMMY_BUCKET, "", executor, Integer.MAX_VALUE)) {
+          new ObjectKvManager(newS3Client(port), DUMMY_BUCKET, "", executor, Integer.MAX_VALUE)) {
         manager.insert(dataView);
       }
       LOGGER.info("write history data {} to {}:{} success", pathList, LOCAL_IP, port);
