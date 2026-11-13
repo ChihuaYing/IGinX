@@ -22,6 +22,7 @@ package cn.edu.tsinghua.iginx.s3;
 import cn.edu.tsinghua.iginx.engine.physical.exception.PhysicalException;
 import cn.edu.tsinghua.iginx.engine.physical.exception.PhysicalTaskExecuteFailureException;
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
+import cn.edu.tsinghua.iginx.engine.physical.storage.DriverDescriptor;
 import cn.edu.tsinghua.iginx.engine.physical.storage.IStorage;
 import cn.edu.tsinghua.iginx.engine.physical.storage.domain.Column;
 import cn.edu.tsinghua.iginx.engine.physical.storage.domain.DataArea;
@@ -78,6 +79,7 @@ import org.slf4j.LoggerFactory;
  *       directory per storage unit.
  * </ul>
  */
+@DriverDescriptor(S3DriverDescriptor.class)
 public class S3Storage implements IStorage {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(S3Storage.class);

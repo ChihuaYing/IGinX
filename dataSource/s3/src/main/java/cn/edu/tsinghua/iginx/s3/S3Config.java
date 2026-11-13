@@ -51,6 +51,7 @@ public final class S3Config {
   public static final String VIRTUAL_STYLE = "virtual_style";
   public static final String REGION_REQUIRED = "region_required";
   public static final String AUTO_CREATE_BUCKET = "auto_create_bucket";
+  public static final String PRESERVE_HOST = "preserve_host";
 
   public static final String USERNAME = "username";
   public static final String PASSWORD = "password";
@@ -83,7 +84,7 @@ public final class S3Config {
   public static final String META_FILE_SUFFIX = "-meta.properties";
   public static final List<String> META_KEYS =
       Collections.unmodifiableList(
-          Arrays.asList(SECURE, VIRTUAL_STYLE, REGION_REQUIRED, AUTO_CREATE_BUCKET));
+          Arrays.asList(SECURE, VIRTUAL_STYLE, REGION_REQUIRED, AUTO_CREATE_BUCKET, PRESERVE_HOST));
 
   private final Map<String, String> params;
   private final String engine;
@@ -93,6 +94,7 @@ public final class S3Config {
   private final boolean virtualStyle;
   private final boolean regionRequired;
   private final boolean autoCreateBucket;
+  private final boolean preserveHost;
   private final String username;
   private final String password;
   private final String region;
@@ -134,6 +136,7 @@ public final class S3Config {
     this.virtualStyle = parseBoolean(meta, VIRTUAL_STYLE);
     this.regionRequired = parseBoolean(meta, REGION_REQUIRED);
     this.autoCreateBucket = parseBoolean(meta, AUTO_CREATE_BUCKET);
+    this.preserveHost = parseBoolean(meta, PRESERVE_HOST);
     this.endpointHost = ip;
     this.endpointPort = port;
     this.username = params.getOrDefault(USERNAME, DEFAULT_CREDENTIAL);
@@ -212,6 +215,25 @@ public final class S3Config {
     } catch (IOException | RuntimeException e) {
       throw new StorageInitializationException("invalid s3 params: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * Whether the registered host is kept instead of the resolved IP: virtual-hosted-style puts the
+   * bucket before the domain, and {@code preserve_host} is for services reached by domain anyway
+   * (e.g. TLS certificates issued for the domain). Reads only resources and the file of {@code
+   * meta_properties_path}, without connecting.
+   */
+  static boolean preservesHost(Map<String, String> params) throws IOException {
+    String engine = emptyToNull(params.get(ENGINE));
+    if (engine == null) {
+      return false;
+    }
+    engine = engine.trim().toLowerCase(Locale.ROOT);
+    if (!S3StrategyFactory.ENGINES.contains(engine)) {
+      return false;
+    }
+    Properties meta = loadMeta(engine, params);
+    return parseBoolean(meta, VIRTUAL_STYLE) || parseBoolean(meta, PRESERVE_HOST);
   }
 
   private static Properties loadMeta(String engine, Map<String, String> params) throws IOException {
@@ -308,6 +330,10 @@ public final class S3Config {
 
   public boolean isAutoCreateBucket() {
     return autoCreateBucket;
+  }
+
+  public boolean isPreserveHost() {
+    return preserveHost;
   }
 
   public String getEndpointHost() {

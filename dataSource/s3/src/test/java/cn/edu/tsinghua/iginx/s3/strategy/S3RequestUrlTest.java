@@ -21,6 +21,9 @@ package cn.edu.tsinghua.iginx.s3.strategy;
 
 import static org.junit.Assert.*;
 
+import cn.edu.tsinghua.iginx.engine.physical.storage.DriverDescriptor;
+import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.StorageDriverDescriptor;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Field;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Row;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.RowStream;
@@ -28,6 +31,7 @@ import cn.edu.tsinghua.iginx.engine.shared.operator.filter.BoolFilter;
 import cn.edu.tsinghua.iginx.metadata.entity.StorageEngineMeta;
 import cn.edu.tsinghua.iginx.metadata.utils.StorageEngineUtils;
 import cn.edu.tsinghua.iginx.s3.S3Config;
+import cn.edu.tsinghua.iginx.s3.S3Storage;
 import cn.edu.tsinghua.iginx.s3.common.S3Client;
 import cn.edu.tsinghua.iginx.s3.common.S3Object;
 import cn.edu.tsinghua.iginx.s3.kv.ColumnNames;
@@ -40,12 +44,9 @@ import cn.edu.tsinghua.iginx.s3.tree.ObjectTreeConfig;
 import cn.edu.tsinghua.iginx.s3.tree.ObjectTreeManager;
 import cn.edu.tsinghua.iginx.thrift.DataType;
 import cn.edu.tsinghua.iginx.thrift.StorageEngineType;
-import cn.edu.tsinghua.iginx.utils.HostUtils;
 import com.typesafe.config.ConfigFactory;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
@@ -55,7 +56,6 @@ import java.util.stream.Collectors;
 import okhttp3.HttpUrl;
 import okhttp3.Request;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -68,7 +68,7 @@ import org.junit.Test;
 public class S3RequestUrlTest {
 
   private static final String OSS_HOST = "oss-cn-hangzhou.aliyuncs.com";
-  /** an address of {@link #OSS_HOST}, used instead of DNS */
+  /** an address of {@link #OSS_HOST} */
   private static final String OSS_IP = "118.31.219.230";
 
   private static final String OSS_REGION = "oss-cn-hangzhou";
@@ -97,21 +97,24 @@ public class S3RequestUrlTest {
     return params;
   }
 
+  /** the descriptor declared on the driver class, loaded as StorageManager#getDescriptor does */
+  private static StorageDriverDescriptor descriptor() throws Exception {
+    return S3Storage.class
+        .getAnnotation(DriverDescriptor.class)
+        .value()
+        .getConstructor()
+        .newInstance();
+  }
+
   /**
    * Registers the engine as IGinX does (DefaultMetaManager#resolveStorageEngineFromConf and
-   * IginxWorker#addStorageEngines): the host must resolve to a valid IPv4 address, then the domain
-   * is saved in meta and passed to the driver if {@link StorageEngineUtils#keepsHostName}, else the
-   * IP.
-   *
-   * @param resolvedIp what DNS returns for host, given to avoid depending on network
+   * IginxWorker#addStorageEngines): the address saved in meta and passed to the driver follows the
+   * host policy declared by the driver.
    */
-  private static S3Strategy register(
-      String host, String resolvedIp, int port, Map<String, String> params) throws Exception {
-    assertTrue("IGinX rejects host " + host, HostUtils.isValidHost(resolvedIp));
-    String ip =
-        StorageEngineUtils.keepsHostName(StorageEngineType.s3, params)
-            ? host.trim().toLowerCase(Locale.ROOT)
-            : resolvedIp;
+  private static S3Strategy register(String host, int port, Map<String, String> params)
+      throws Exception {
+    String ip = StorageEngineUtils.addressOf(host, descriptor().hostPolicy(params));
+    assertNotNull("IGinX rejects host " + host, ip);
     StorageEngineMeta meta = new StorageEngineMeta(-1, ip, port, params, StorageEngineType.s3, -1);
     S3Strategy strategy = S3StrategyFactory.create(S3Config.of(meta));
     strategy.validate();
@@ -152,7 +155,7 @@ public class S3RequestUrlTest {
   @Test
   public void testAliyunRequestsAreVirtualHosted() throws Exception {
     FakeS3 fake = newOss(OSS_HOST);
-    S3Strategy strategy = register(OSS_HOST, OSS_IP, 443, aliyunParams());
+    S3Strategy strategy = register(OSS_HOST, 443, aliyunParams());
     runAllOperations(strategy, clientOf(strategy, fake));
 
     List<Request> requests = fake.requests();
@@ -178,7 +181,7 @@ public class S3RequestUrlTest {
     fake.put(BUCKET, "a/b.csv", CSV);
     Map<String, String> params = new HashMap<>();
     params.put(S3Config.ENGINE, "minio");
-    S3Strategy strategy = register("localhost", "127.0.0.1", 9000, params);
+    S3Strategy strategy = register("localhost", 9000, params);
     runAllOperations(strategy, clientOf(strategy, fake));
 
     // without region, the SDK asks for the location of the bucket first
@@ -194,32 +197,36 @@ public class S3RequestUrlTest {
         describe(fake.requests()));
   }
 
-  /** only aliyun of s3 keeps the registered domain, the others save the IP */
+  /** services addressed by virtual-hosted-style or declaring preserve_host keep the domain */
   @Test
-  public void testKeepsHostName() {
-    assertFalse(HostUtils.isValidHost(OSS_HOST));
-    assertTrue(StorageEngineUtils.keepsHostName(StorageEngineType.s3, aliyunParams()));
-    assertTrue(
-        StorageEngineUtils.keepsHostName(
-            StorageEngineType.s3, Collections.singletonMap(S3Config.ENGINE, " AliYun ")));
-    assertFalse(
-        StorageEngineUtils.keepsHostName(
-            StorageEngineType.s3, Collections.singletonMap(S3Config.ENGINE, "minio")));
-    assertFalse(StorageEngineUtils.keepsHostName(StorageEngineType.s3, Collections.emptyMap()));
-    assertFalse(StorageEngineUtils.keepsHostName(StorageEngineType.relational, aliyunParams()));
+  public void testHostPolicy() throws Exception {
+    StorageDriverDescriptor descriptor = descriptor();
+    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(aliyunParams()));
+    assertEquals(
+        HostPolicy.PRESERVE_HOST,
+        descriptor.hostPolicy(Collections.singletonMap(S3Config.ENGINE, " AliYun ")));
+    Map<String, String> minio = new HashMap<>();
+    minio.put(S3Config.ENGINE, "minio");
+    assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(minio));
+    minio.put(S3Config.VIRTUAL_STYLE, "true");
+    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(minio));
+    minio.remove(S3Config.VIRTUAL_STYLE);
+    minio.put(S3Config.PRESERVE_HOST, "true");
+    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(minio));
+    // invalid params fall back to the default, and are reported when the storage is created
+    assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(Collections.emptyMap()));
+    assertEquals(
+        HostPolicy.RESOLVE_TO_IP,
+        descriptor.hostPolicy(Collections.singletonMap(S3Config.ENGINE, "unknown")));
+    minio.put(S3Config.META_PROPERTIES_PATH, "/no/such/file.properties");
+    assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(minio));
   }
 
-  /** registers the domain and resolves it by real DNS as IGinX does, skipped without DNS */
+  /** the domain is kept as is (in lower case) without resolving, so no DNS is needed */
   @Test
   public void testAliyunRegisteredByDomain() throws Exception {
-    try {
-      InetAddress.getByName(OSS_HOST);
-    } catch (UnknownHostException e) {
-      Assume.assumeNoException(e);
-    }
     FakeS3 fake = newOss(OSS_HOST);
-    S3Strategy strategy =
-        register(OSS_HOST, HostUtils.convertHostNameToHostAddress(OSS_HOST), 443, aliyunParams());
+    S3Strategy strategy = register(" OSS-CN-HANGZHOU.aliyuncs.com ", 443, aliyunParams());
     assertTrue(clientOf(strategy, fake).bucketExists(BUCKET));
     assertEquals(
         Collections.singletonList("HEAD https://bkt.oss-cn-hangzhou.aliyuncs.com/"),
@@ -228,26 +235,21 @@ public class S3RequestUrlTest {
 
   /** the bucket would be put before the IP, so aliyun must be registered by domain */
   @Test
-  public void testAliyunRegisteredByIpRejected() {
-    assertRegisterRejected(OSS_IP, OSS_IP);
-    // empty host passes validation of IGinX since it is resolved to loopback
-    assertRegisterRejected("", "127.0.0.1");
-  }
-
-  private static void assertRegisterRejected(String host, String resolvedIp) {
+  public void testAliyunRegisteredByIpRejected() throws Exception {
     try {
-      register(host, resolvedIp, 443, aliyunParams());
+      register(OSS_IP, 443, aliyunParams());
       fail();
     } catch (Exception e) {
       assertTrue(e.getMessage(), e.getMessage().contains("domain of the service"));
     }
+    assertNull(StorageEngineUtils.addressOf("", descriptor().hostPolicy(aliyunParams())));
   }
 
   @Test
   public void testAliyunInternalEndpoint() throws Exception {
     String host = "oss-cn-hangzhou-internal.aliyuncs.com";
     FakeS3 fake = newOss(host);
-    S3Strategy strategy = register(host, "100.118.28.1", 443, aliyunParams());
+    S3Strategy strategy = register(host, 443, aliyunParams());
     assertTrue(clientOf(strategy, fake).bucketExists(BUCKET));
     assertEquals(
         Collections.singletonList("HEAD https://bkt.oss-cn-hangzhou-internal.aliyuncs.com/"),
@@ -259,7 +261,7 @@ public class S3RequestUrlTest {
     FakeS3 fake = newOss(OSS_HOST);
     Map<String, String> params = aliyunParams();
     params.put(S3Config.SECURE, "false");
-    S3Strategy strategy = register(OSS_HOST, OSS_IP, 80, params);
+    S3Strategy strategy = register(OSS_HOST, 80, params);
     assertTrue(clientOf(strategy, fake).bucketExists(BUCKET));
     assertEquals(
         Collections.singletonList("HEAD http://bkt.oss-cn-hangzhou.aliyuncs.com/"),
@@ -269,7 +271,7 @@ public class S3RequestUrlTest {
   @Test
   public void testAliyunDoesNotCreateBucket() throws Exception {
     FakeS3 fake = new FakeS3(OSS_HOST, true);
-    S3Strategy strategy = register(OSS_HOST, OSS_IP, 443, aliyunParams());
+    S3Strategy strategy = register(OSS_HOST, 443, aliyunParams());
     try {
       strategy.ensureBucket(clientOf(strategy, fake), BUCKET);
       fail();
@@ -290,7 +292,7 @@ public class S3RequestUrlTest {
     FakeS3 fake = newOss(OSS_HOST);
     Map<String, String> params = aliyunParams();
     params.put(S3Config.VIRTUAL_STYLE, "false");
-    S3Strategy strategy = register(OSS_HOST, OSS_IP, 443, params);
+    S3Strategy strategy = register(OSS_HOST, 443, params);
     try {
       clientOf(strategy, fake).getObject(BUCKET, "a/b.csv").close();
       fail();
@@ -313,7 +315,7 @@ public class S3RequestUrlTest {
         BUCKET,
         ColumnNames.encode(fullName) + "/" + name.toFileName(),
         new Segment(DataType.LONG, new long[] {1, 2}, new Object[] {10L, 20L}).encode());
-    S3Strategy strategy = register(OSS_HOST, OSS_IP, 443, aliyunParams());
+    S3Strategy strategy = register(OSS_HOST, 443, aliyunParams());
     S3Client client = clientOf(strategy, fake);
 
     try (ObjectKvManager manager = new ObjectKvManager(client, BUCKET, "", executor, 16)) {

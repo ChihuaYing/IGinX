@@ -50,6 +50,9 @@ public class StorageManager {
 
   private static final Map<StorageEngineType, String> drivers = new ConcurrentHashMap<>();
 
+  private static final Map<StorageEngineType, StorageDriverDescriptor> descriptors =
+      new ConcurrentHashMap<>();
+
   private static final Map<Long, Pair<IStorage, ThreadPoolExecutor>> storageMap =
       new ConcurrentHashMap<>();
 
@@ -113,6 +116,34 @@ public class StorageManager {
       } catch (Exception e) {
         LOGGER.error("release session pool failure!", e);
       }
+    }
+  }
+
+  /**
+   * The descriptor declared by {@link DriverDescriptor} on the driver class, read without
+   * initializing or constructing the driver. Falls back to {@link StorageDriverDescriptor#DEFAULT}.
+   */
+  public static StorageDriverDescriptor getDescriptor(StorageEngineType engine) {
+    initClassLoaderAndDrivers();
+    return descriptors.computeIfAbsent(engine, StorageManager::loadDescriptor);
+  }
+
+  private static StorageDriverDescriptor loadDescriptor(StorageEngineType engine) {
+    String driver = drivers.get(engine);
+    ClassLoader loader = classLoaders.get(engine);
+    if (driver == null || loader == null) {
+      return StorageDriverDescriptor.DEFAULT;
+    }
+    try {
+      DriverDescriptor declared =
+          Class.forName(driver, false, loader).getAnnotation(DriverDescriptor.class);
+      if (declared == null) {
+        return StorageDriverDescriptor.DEFAULT;
+      }
+      return declared.value().getConstructor().newInstance();
+    } catch (ReflectiveOperationException | LinkageError e) {
+      LOGGER.error("failed to load descriptor of driver {} for engine {}", driver, engine, e);
+      return StorageDriverDescriptor.DEFAULT;
     }
   }
 

@@ -50,6 +50,7 @@ public class S3ConfigTest {
     assertFalse(minio.isVirtualStyle());
     assertFalse(minio.isRegionRequired());
     assertTrue(minio.isAutoCreateBucket());
+    assertFalse(minio.isPreserveHost());
 
     S3Config aliyun = configOf(paramsOf("Aliyun"));
     assertEquals("aliyun", aliyun.getEngine());
@@ -57,6 +58,7 @@ public class S3ConfigTest {
     assertTrue(aliyun.isVirtualStyle());
     assertTrue(aliyun.isRegionRequired());
     assertFalse(aliyun.isAutoCreateBucket());
+    assertTrue(aliyun.isPreserveHost());
   }
 
   @Test

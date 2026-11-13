@@ -20,16 +20,23 @@
 package cn.edu.tsinghua.iginx.metadata.utils;
 
 import static cn.edu.tsinghua.iginx.conf.Constants.*;
+import static cn.edu.tsinghua.iginx.utils.HostUtils.convertHostNameToHostAddress;
 import static cn.edu.tsinghua.iginx.utils.HostUtils.isLocalHost;
+import static cn.edu.tsinghua.iginx.utils.HostUtils.isValidHost;
 
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.conf.Constants;
+import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.StorageManager;
 import cn.edu.tsinghua.iginx.metadata.entity.StorageEngineMeta;
 import cn.edu.tsinghua.iginx.thrift.StorageEngineType;
 import cn.edu.tsinghua.iginx.utils.Pair;
 import java.io.File;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 public class StorageEngineUtils {
 
@@ -37,15 +44,30 @@ public class StorageEngineUtils {
     return type.equals(StorageEngineType.filesystem);
   }
 
+  private static final Pattern HOST_NAME =
+      Pattern.compile("[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*");
+
+  /** 按驱动声明的地址策略得到存入元数据的地址，不合法时返回 null */
+  @Nullable
+  public static String addressOf(
+      String host, StorageEngineType type, Map<String, String> extraParams) {
+    return addressOf(host, StorageManager.getDescriptor(type).hostPolicy(extraParams));
+  }
+
   /**
-   * 注册时是否在元数据中保留原始域名，而不是解析出的 IP。阿里云 OSS 只接受虚拟主机风格的请求（桶名拼在域名前）， TLS 证书和服务端的 Host 校验也都要求域名，用 IP
-   * 无法访问，所以 s3 类型中 engine 为 aliyun 的引擎保留域名； 其他引擎仍保存 IP，地址比较等逻辑不受影响。
+   * 存入元数据的地址，不合法时返回 null。
+   *
+   * <p>RESOLVE_TO_IP：解析为 IP，要求是合法的 IPv4。PRESERVE_HOST：保留输入并转为小写，只校验格式（不能为空，不能带协议、端口或路径），
+   * 能否连通由注册时驱动的连接测试检验。
    */
-  public static boolean keepsHostName(StorageEngineType type, Map<String, String> extraParams) {
-    String engine = extraParams.get("engine");
-    return type.equals(StorageEngineType.s3)
-        && engine != null
-        && engine.trim().equalsIgnoreCase("aliyun");
+  @Nullable
+  public static String addressOf(String host, HostPolicy policy) {
+    if (policy == HostPolicy.PRESERVE_HOST) {
+      String normalized = host.trim().toLowerCase(Locale.ROOT);
+      return HOST_NAME.matcher(normalized).matches() ? normalized : null;
+    }
+    String ip = convertHostNameToHostAddress(host);
+    return isValidHost(ip) ? ip : null;
   }
 
   private static boolean isDirValid(String dir) {
