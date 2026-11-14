@@ -66,7 +66,7 @@ public class AliyunOssStrategy extends AbstractS3Strategy {
   protected String hintOf(String code) {
     switch (code) {
       case "SecondLevelDomainForbidden":
-        return "OSS only accepts virtual-hosted-style requests, check " + S3Config.VIRTUAL_STYLE;
+        return "OSS only accepts virtual-hosted-style requests; check the endpoint domain and the driver's bundled service configuration";
       case "SignatureDoesNotMatch":
         return "check " + S3Config.PASSWORD + " (AccessKeySecret) and " + S3Config.REGION;
       case "InvalidAccessKeyId":

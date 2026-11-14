@@ -22,7 +22,6 @@ package cn.edu.tsinghua.iginx.s3;
 import static org.junit.Assert.*;
 
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -50,7 +49,6 @@ public class S3ConfigTest {
     assertFalse(minio.isVirtualStyle());
     assertFalse(minio.isRegionRequired());
     assertTrue(minio.isAutoCreateBucket());
-    assertFalse(minio.isPreserveHost());
 
     S3Config aliyun = configOf(paramsOf("Aliyun"));
     assertEquals("aliyun", aliyun.getEngine());
@@ -58,26 +56,25 @@ public class S3ConfigTest {
     assertTrue(aliyun.isVirtualStyle());
     assertTrue(aliyun.isRegionRequired());
     assertFalse(aliyun.isAutoCreateBucket());
-    assertTrue(aliyun.isPreserveHost());
   }
 
   @Test
-  public void testPrecedence() throws Exception {
-    Path file = Files.createTempFile("s3-meta", ".properties");
+  public void testExternalConfigRejected() throws Exception {
+    Path directory = Files.createTempDirectory("s3-config-test");
     try {
-      Files.write(
-          file, "virtual_style=false\nauto_create_bucket=true\n".getBytes(StandardCharsets.UTF_8));
-      Map<String, String> params = paramsOf("aliyun");
-      params.put(S3Config.META_PROPERTIES_PATH, file.toString());
-      params.put(S3Config.AUTO_CREATE_BUCKET, "false");
-      S3Config config = configOf(params);
-      // extra params > meta_properties_path > aliyun-meta.properties > default-meta.properties
-      assertFalse(config.isAutoCreateBucket());
-      assertFalse(config.isVirtualStyle());
-      assertTrue(config.isSecure());
-      assertTrue(config.isRegionRequired());
+      // A native path on every OS; rejection must not depend on filesystem error messages.
+      Path file = directory.resolve("missing.properties");
+      Map<String, String> params = paramsOf("minio");
+      params.put("meta_properties_path", file.toString());
+      assertInvalid(params, "meta_properties_path is not supported");
+      Files.createFile(file);
+      try {
+        assertInvalid(params, "meta_properties_path is not supported");
+      } finally {
+        Files.delete(file);
+      }
     } finally {
-      Files.delete(file);
+      Files.delete(directory);
     }
   }
 
@@ -98,14 +95,23 @@ public class S3ConfigTest {
   }
 
   @Test
-  public void testInvalidMeta() {
-    Map<String, String> params = paramsOf("minio");
-    params.put(S3Config.VIRTUAL_STYLE, "yes");
-    assertInvalid(params, "virtual_style should be true or false");
-
-    params = paramsOf("minio");
-    params.put(S3Config.META_PROPERTIES_PATH, "/not/exist.properties");
-    assertInvalid(params, "/not/exist.properties");
+  public void testServiceCapabilitiesCannotBeOverridden() {
+    for (String engine : new String[] {"minio", "aliyun"}) {
+      for (String key :
+          new String[] {
+            "preserve_host",
+            "host_policy",
+            "secure",
+            "virtual_style",
+            "region_required",
+            "auto_create_bucket",
+            "PRESERVE_HOST"
+          }) {
+        Map<String, String> params = paramsOf(engine);
+        params.put(key, "false");
+        assertInvalid(params, key + " is not supported");
+      }
+    }
   }
 
   private static void assertInvalid(Map<String, String> params, String message) {

@@ -21,6 +21,7 @@ package cn.edu.tsinghua.iginx.s3.strategy;
 
 import static org.junit.Assert.*;
 
+import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
 import cn.edu.tsinghua.iginx.engine.physical.storage.DriverDescriptor;
 import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
 import cn.edu.tsinghua.iginx.engine.physical.storage.StorageDriverDescriptor;
@@ -197,7 +198,7 @@ public class S3RequestUrlTest {
         describe(fake.requests()));
   }
 
-  /** services addressed by virtual-hosted-style or declaring preserve_host keep the domain */
+  /** The address policy is a bundled service capability, not a registration option. */
   @Test
   public void testHostPolicy() throws Exception {
     StorageDriverDescriptor descriptor = descriptor();
@@ -209,17 +210,19 @@ public class S3RequestUrlTest {
     minio.put(S3Config.ENGINE, "minio");
     assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(minio));
     minio.put(S3Config.VIRTUAL_STYLE, "true");
-    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(minio));
-    minio.remove(S3Config.VIRTUAL_STYLE);
-    minio.put(S3Config.PRESERVE_HOST, "true");
-    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(minio));
+    minio.put("preserve_host", "true");
+    minio.put("meta_properties_path", "unused.properties");
+    assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(minio));
+    Map<String, String> aliyun = aliyunParams();
+    aliyun.put(S3Config.VIRTUAL_STYLE, "false");
+    aliyun.put("preserve_host", "false");
+    aliyun.put("host_policy", "RESOLVE_TO_IP");
+    assertEquals(HostPolicy.PRESERVE_HOST, descriptor.hostPolicy(aliyun));
     // invalid params fall back to the default, and are reported when the storage is created
     assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(Collections.emptyMap()));
     assertEquals(
         HostPolicy.RESOLVE_TO_IP,
         descriptor.hostPolicy(Collections.singletonMap(S3Config.ENGINE, "unknown")));
-    minio.put(S3Config.META_PROPERTIES_PATH, "/no/such/file.properties");
-    assertEquals(HostPolicy.RESOLVE_TO_IP, descriptor.hostPolicy(minio));
   }
 
   /** the domain is kept as is (in lower case) without resolving, so no DNS is needed */
@@ -257,15 +260,15 @@ public class S3RequestUrlTest {
   }
 
   @Test
-  public void testAliyunHttpEndpoint() throws Exception {
-    FakeS3 fake = newOss(OSS_HOST);
+  public void testAliyunServiceOverridesRejected() throws Exception {
     Map<String, String> params = aliyunParams();
     params.put(S3Config.SECURE, "false");
-    S3Strategy strategy = register(OSS_HOST, 80, params);
-    assertTrue(clientOf(strategy, fake).bucketExists(BUCKET));
-    assertEquals(
-        Collections.singletonList("HEAD http://bkt.oss-cn-hangzhou.aliyuncs.com/"),
-        describe(fake.requests()));
+    try {
+      register(OSS_HOST, 80, params);
+      fail("user options must not change the service protocol");
+    } catch (StorageInitializationException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("secure is not supported"));
+    }
   }
 
   @Test
@@ -283,26 +286,19 @@ public class S3RequestUrlTest {
         describe(fake.requests()));
   }
 
-  /**
-   * OSS rejects path-style requests, the error carries a readable hint. Responses of HEAD have no
-   * body, so only requests with a body (GET here) carry the error code.
-   */
+  /** Reject an incompatible override before a request can be sent to OSS. */
   @Test
   public void testPathStyleRejectedByOss() throws Exception {
     FakeS3 fake = newOss(OSS_HOST);
     Map<String, String> params = aliyunParams();
     params.put(S3Config.VIRTUAL_STYLE, "false");
-    S3Strategy strategy = register(OSS_HOST, 443, params);
     try {
-      clientOf(strategy, fake).getObject(BUCKET, "a/b.csv").close();
+      register(OSS_HOST, 443, params);
       fail();
-    } catch (IOException e) {
-      assertTrue(e.getMessage(), e.getMessage().contains("SecondLevelDomainForbidden"));
-      assertTrue(e.getMessage(), e.getMessage().contains(S3Config.VIRTUAL_STYLE));
+    } catch (StorageInitializationException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("virtual_style is not supported"));
     }
-    assertEquals(
-        Collections.singletonList("GET https://oss-cn-hangzhou.aliyuncs.com/bkt/a/b.csv"),
-        describe(fake.requests()));
+    assertTrue(fake.requests().isEmpty());
   }
 
   /** ObjectKV and LegacyFilesystem work on OSS, which rejects any path-style request */

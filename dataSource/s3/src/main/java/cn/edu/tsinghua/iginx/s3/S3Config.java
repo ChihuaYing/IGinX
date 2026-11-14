@@ -22,6 +22,7 @@ package cn.edu.tsinghua.iginx.s3;
 import static cn.edu.tsinghua.iginx.constant.GlobalConstant.ESCAPED_DOT;
 
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
+import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
 import cn.edu.tsinghua.iginx.metadata.entity.StorageEngineMeta;
 import cn.edu.tsinghua.iginx.s3.common.IginxPaths;
 import cn.edu.tsinghua.iginx.s3.kv.ObjectKvManager;
@@ -32,26 +33,22 @@ import com.typesafe.config.ConfigFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
 import javax.annotation.Nullable;
 
 /**
  * Parameters of an S3 storage engine, parsed from extra params of {@link StorageEngineMeta}.
  *
- * <p>Params that differ between services ({@link #META_KEYS}) are resolved in order: extra params,
- * the file of {@code meta_properties_path}, {@code <engine>-meta.properties}, {@code
- * default-meta.properties}.
+ * <p>Service capabilities come only from bundled {@code <engine>-meta.properties} overlaid on
+ * {@code default-meta.properties}. Registration options cannot override them.
  */
 public final class S3Config {
 
   public static final String ENGINE = "engine";
-  public static final String META_PROPERTIES_PATH = "meta_properties_path";
   public static final String VIRTUAL_STYLE = "virtual_style";
   public static final String REGION_REQUIRED = "region_required";
   public static final String AUTO_CREATE_BUCKET = "auto_create_bucket";
-  public static final String PRESERVE_HOST = "preserve_host";
+  private static final String HOST_POLICY = "host_policy";
 
   public static final String USERNAME = "username";
   public static final String PASSWORD = "password";
@@ -82,9 +79,16 @@ public final class S3Config {
 
   public static final String DEFAULT_META_FILE = "default-meta.properties";
   public static final String META_FILE_SUFFIX = "-meta.properties";
-  public static final List<String> META_KEYS =
+  private static final List<String> UNSUPPORTED_OPTIONS =
       Collections.unmodifiableList(
-          Arrays.asList(SECURE, VIRTUAL_STYLE, REGION_REQUIRED, AUTO_CREATE_BUCKET, PRESERVE_HOST));
+          Arrays.asList(
+              "meta_properties_path",
+              "preserve_host",
+              HOST_POLICY,
+              SECURE,
+              VIRTUAL_STYLE,
+              REGION_REQUIRED,
+              AUTO_CREATE_BUCKET));
 
   private final Map<String, String> params;
   private final String engine;
@@ -94,7 +98,6 @@ public final class S3Config {
   private final boolean virtualStyle;
   private final boolean regionRequired;
   private final boolean autoCreateBucket;
-  private final boolean preserveHost;
   private final String username;
   private final String password;
   private final String region;
@@ -131,12 +134,17 @@ public final class S3Config {
               + ", expect one of "
               + S3StrategyFactory.ENGINES);
     }
-    Properties meta = loadMeta(engine, params);
+    for (String key : params.keySet()) {
+      if (UNSUPPORTED_OPTIONS.contains(key.toLowerCase(Locale.ROOT))) {
+        throw new StorageInitializationException(
+            key + " is not supported; S3 service capabilities are defined by the driver");
+      }
+    }
+    Properties meta = loadMeta(engine);
     this.secure = parseBoolean(meta, SECURE);
     this.virtualStyle = parseBoolean(meta, VIRTUAL_STYLE);
     this.regionRequired = parseBoolean(meta, REGION_REQUIRED);
     this.autoCreateBucket = parseBoolean(meta, AUTO_CREATE_BUCKET);
-    this.preserveHost = parseBoolean(meta, PRESERVE_HOST);
     this.endpointHost = ip;
     this.endpointPort = port;
     this.username = params.getOrDefault(USERNAME, DEFAULT_CREDENTIAL);
@@ -217,41 +225,23 @@ public final class S3Config {
     }
   }
 
-  /**
-   * Whether the registered host is kept instead of the resolved IP: virtual-hosted-style puts the
-   * bucket before the domain, and {@code preserve_host} is for services reached by domain anyway
-   * (e.g. TLS certificates issued for the domain). Reads only resources and the file of {@code
-   * meta_properties_path}, without connecting.
-   */
-  static boolean preservesHost(Map<String, String> params) throws IOException {
+  /** Reads the address policy from bundled service capabilities, without connecting. */
+  static HostPolicy hostPolicy(Map<String, String> params) throws IOException {
     String engine = emptyToNull(params.get(ENGINE));
     if (engine == null) {
-      return false;
+      return HostPolicy.RESOLVE_TO_IP;
     }
     engine = engine.trim().toLowerCase(Locale.ROOT);
     if (!S3StrategyFactory.ENGINES.contains(engine)) {
-      return false;
+      return HostPolicy.RESOLVE_TO_IP;
     }
-    Properties meta = loadMeta(engine, params);
-    return parseBoolean(meta, VIRTUAL_STYLE) || parseBoolean(meta, PRESERVE_HOST);
+    return HostPolicy.valueOf(loadMeta(engine).getProperty(HOST_POLICY));
   }
 
-  private static Properties loadMeta(String engine, Map<String, String> params) throws IOException {
+  private static Properties loadMeta(String engine) throws IOException {
     Properties meta = new Properties();
     loadResource(meta, DEFAULT_META_FILE);
     loadResource(meta, engine + META_FILE_SUFFIX);
-    String path = emptyToNull(params.get(META_PROPERTIES_PATH));
-    if (path != null) {
-      try (InputStream in = Files.newInputStream(Paths.get(path))) {
-        meta.load(in);
-      }
-    }
-    for (String key : META_KEYS) {
-      String value = params.get(key);
-      if (value != null) {
-        meta.setProperty(key, value);
-      }
-    }
     return meta;
   }
 
@@ -330,10 +320,6 @@ public final class S3Config {
 
   public boolean isAutoCreateBucket() {
     return autoCreateBucket;
-  }
-
-  public boolean isPreserveHost() {
-    return preserveHost;
   }
 
   public String getEndpointHost() {

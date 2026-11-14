@@ -23,22 +23,16 @@ import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
 import cn.edu.tsinghua.iginx.engine.physical.storage.StorageDriverDescriptor;
 import java.io.IOException;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** Keeps the registered domain for services declaring virtual_style or preserve_host. */
+/** Declares the address policy from the driver's bundled service capabilities. */
 public class S3DriverDescriptor implements StorageDriverDescriptor {
-
-  private static final Logger LOGGER = LoggerFactory.getLogger(S3DriverDescriptor.class);
 
   @Override
   public HostPolicy hostPolicy(Map<String, String> options) {
     try {
-      return S3Config.preservesHost(options) ? HostPolicy.PRESERVE_HOST : HostPolicy.RESOLVE_TO_IP;
+      return S3Config.hostPolicy(options);
     } catch (IOException | RuntimeException e) {
-      // invalid params are reported when the storage is created
-      LOGGER.warn("failed to read host policy of s3 params, resolve the host to IP", e);
-      return HostPolicy.RESOLVE_TO_IP;
+      throw new IllegalStateException("cannot load bundled S3 host policy", e);
     }
   }
 }
