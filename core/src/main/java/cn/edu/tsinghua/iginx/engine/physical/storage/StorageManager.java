@@ -21,6 +21,8 @@ package cn.edu.tsinghua.iginx.engine.physical.storage;
 
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.engine.physical.exception.PhysicalException;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.DriverDescriptor;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.StorageDriverDescriptor;
 import cn.edu.tsinghua.iginx.engine.physical.storage.reconnect.StorageReconnectionManager;
 import cn.edu.tsinghua.iginx.metadata.DefaultMetaManager;
 import cn.edu.tsinghua.iginx.metadata.entity.ColumnsInterval;

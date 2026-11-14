@@ -19,8 +19,8 @@
  */
 package cn.edu.tsinghua.iginx.s3;
 
-import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
-import cn.edu.tsinghua.iginx.engine.physical.storage.StorageDriverDescriptor;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.StorageDriverDescriptor;
 import java.io.IOException;
 import java.util.Map;
 

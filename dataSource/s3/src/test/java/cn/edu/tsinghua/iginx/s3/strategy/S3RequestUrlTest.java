@@ -22,9 +22,9 @@ package cn.edu.tsinghua.iginx.s3.strategy;
 import static org.junit.Assert.*;
 
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
-import cn.edu.tsinghua.iginx.engine.physical.storage.DriverDescriptor;
-import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
-import cn.edu.tsinghua.iginx.engine.physical.storage.StorageDriverDescriptor;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.DriverDescriptor;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.StorageDriverDescriptor;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Field;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.Row;
 import cn.edu.tsinghua.iginx.engine.shared.data.read.RowStream;

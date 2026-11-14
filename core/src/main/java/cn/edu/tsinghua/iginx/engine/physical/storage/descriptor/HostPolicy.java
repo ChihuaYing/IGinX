@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-package cn.edu.tsinghua.iginx.engine.physical.storage;
+package cn.edu.tsinghua.iginx.engine.physical.storage.descriptor;
 
 /** How the host given at registration is saved in meta and used by the driver. */
 public enum HostPolicy {

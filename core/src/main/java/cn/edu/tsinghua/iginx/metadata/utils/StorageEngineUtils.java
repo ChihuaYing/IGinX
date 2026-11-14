@@ -26,8 +26,8 @@ import static cn.edu.tsinghua.iginx.utils.HostUtils.isValidHost;
 
 import cn.edu.tsinghua.iginx.conf.ConfigDescriptor;
 import cn.edu.tsinghua.iginx.conf.Constants;
-import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
 import cn.edu.tsinghua.iginx.engine.physical.storage.StorageManager;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.HostPolicy;
 import cn.edu.tsinghua.iginx.metadata.entity.StorageEngineMeta;
 import cn.edu.tsinghua.iginx.thrift.StorageEngineType;
 import cn.edu.tsinghua.iginx.utils.Pair;

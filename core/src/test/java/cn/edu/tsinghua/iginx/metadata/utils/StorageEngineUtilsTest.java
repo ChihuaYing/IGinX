@@ -22,7 +22,7 @@ package cn.edu.tsinghua.iginx.metadata.utils;
 import static cn.edu.tsinghua.iginx.metadata.utils.StorageEngineUtils.addressOf;
 import static org.junit.Assert.*;
 
-import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.HostPolicy;
 import org.junit.Test;
 
 public class StorageEngineUtilsTest {

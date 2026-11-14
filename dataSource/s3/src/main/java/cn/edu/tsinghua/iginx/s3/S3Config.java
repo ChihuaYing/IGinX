@@ -22,7 +22,7 @@ package cn.edu.tsinghua.iginx.s3;
 import static cn.edu.tsinghua.iginx.constant.GlobalConstant.ESCAPED_DOT;
 
 import cn.edu.tsinghua.iginx.engine.physical.exception.StorageInitializationException;
-import cn.edu.tsinghua.iginx.engine.physical.storage.HostPolicy;
+import cn.edu.tsinghua.iginx.engine.physical.storage.descriptor.HostPolicy;
 import cn.edu.tsinghua.iginx.metadata.entity.StorageEngineMeta;
 import cn.edu.tsinghua.iginx.s3.common.IginxPaths;
 import cn.edu.tsinghua.iginx.s3.kv.ObjectKvManager;
